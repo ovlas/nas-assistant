@@ -12,7 +12,7 @@ from .auth import User, admin_user, current_user
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
-app = FastAPI(title="NAS Assistant", version="0.7.2")
+app = FastAPI(title="NAS Assistant", version="0.7.3")
 
 # Small boards: decode at most two big images at once. Waiting requests queue
 # here, outside the worker threads, so uploads and browsing never stall behind them.

@@ -1,5 +1,5 @@
 name: NAS Assistant
-version: "0.7.2"
+version: "0.7.3"
 slug: nas_assistant
 description: Your family cloud, at home. A private space for every Home Assistant user, on a disk you choose
 url: https://github.com/ovlas/nas-assistant
@@ -11,8 +11,8 @@ startup: application
 boot: auto
 ingress: true
 ingress_port: 8456
-panel_icon: mdi:folder-home
-panel_title: NAS
+panel_icon: mdi:harddisk
+panel_title: NAS Assistant
 # Every family member sees the panel, not only HA admins.
 panel_admin: false
 ports:

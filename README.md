@@ -25,7 +25,7 @@ plus a folder shared with the whole family, on a dedicated disk of your choice.
 
 1. Settings → Add-ons → Add-on Store → ⋮ → Repositories → add `https://github.com/ovlas/nas-assistant`
 2. Install **NAS Assistant** and start it
-3. Open **NAS** from the sidebar and choose the disk
+3. Open **NAS Assistant** from the sidebar and choose the disk
 
 Full guide: [nas_assistant/DOCS.md](nas_assistant/DOCS.md) · Architecture and roadmap: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
