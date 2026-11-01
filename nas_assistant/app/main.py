@@ -12,7 +12,7 @@ from .auth import User, admin_user, current_user
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
-app = FastAPI(title="NAS Assistant", version="0.7.0")
+app = FastAPI(title="NAS Assistant", version="0.7.1")
 
 # Small boards: decode at most two big images at once. Waiting requests queue
 # here, outside the worker threads, so uploads and browsing never stall behind them.
@@ -196,4 +196,14 @@ async def delete(space: str, path: str, user: User = Depends(current_user)):
     return {"id": storage.move_to_trash(user, space, path)}
 
 
-app.mount("/", StaticFiles(directory=WEB_DIR, html=True), name="web")
+class WebFiles(StaticFiles):
+    """The web UI. Browsers must check for a new version on every load (a cheap
+    304 when nothing changed), otherwise they keep showing the old UI after an update."""
+
+    def file_response(self, *args, **kwargs):
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
+app.mount("/", WebFiles(directory=WEB_DIR, html=True), name="web")
