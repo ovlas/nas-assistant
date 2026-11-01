@@ -1,5 +1,5 @@
 name: NAS Assistant
-version: "0.2.2"
+version: "0.2.3"
 slug: nas_assistant
 description: Il cloud di famiglia, in locale, con uno spazio privato per ogni utente di Home Assistant
 url: https://github.com/ovlas/nas-assistant

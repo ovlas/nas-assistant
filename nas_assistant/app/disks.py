@@ -57,6 +57,18 @@ def _probe(node: dict) -> None:
     node["partlabel"] = node.get("partlabel") or info.get("PART_ENTRY_NAME", "")
 
 
+def _readable(path: str) -> bool:
+    """False when HA keeps the add-on in protection mode: sysfs lists the disk
+    but the container is not allowed to open it."""
+    try:
+        with open(path, "rb") as dev:
+            dev.read(512)
+        return True
+    except OSError as err:
+        print(f"Disco {path} non leggibile: {err}", flush=True)
+        return False
+
+
 def _system_devices() -> set:
     devices = set()
     for path in SYSTEM_PATHS:
@@ -108,9 +120,7 @@ def list_disks(devices: Optional[List[dict]] = None) -> List[dict]:
             "size": int(dev.get("size") or 0),
             "transport": (dev.get("tran") or "").upper(),
             "removable": bool(dev.get("rm")),
-            # False when HA keeps the add-on in protection mode: sysfs lists the
-            # disk but its /dev node is not passed into the container.
-            "accessible": os.path.exists(dev["path"]),
+            "accessible": _readable(dev["path"]),
             "partitions": parts,
         })
     return disks
