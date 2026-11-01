@@ -96,6 +96,7 @@ const MESSAGES = {
     uploadPaused: "In pausa: riprende quando torni nell'app",
     cancel: "Annulla", formatAndUse: "Formatta e usa",
     errors: {
+      "NAS disk is full": "Il disco del NAS è pieno",
       "Backup disk not available": "Disco di backup non disponibile", "A backup is already running": "C'è già un backup in corso",
       "Can't move a folder into itself": "Non puoi spostare una cartella dentro sé stessa", "Can't change the root folder": "La cartella principale non si può modificare",
       "NAS disk not available": "Disco NAS non disponibile",
@@ -161,6 +162,7 @@ const MESSAGES = {
     uploadPaused: "En pausa: continúa cuando vuelvas a la app",
     cancel: "Cancelar", formatAndUse: "Formatear y usar",
     errors: {
+      "NAS disk is full": "El disco del NAS está lleno",
       "Backup disk not available": "Disco de copia no disponible", "A backup is already running": "Ya hay una copia en curso",
       "Can't move a folder into itself": "No puedes mover una carpeta dentro de sí misma",
       "NAS disk not available": "Disco NAS no disponible",
@@ -217,6 +219,7 @@ const MESSAGES = {
     uploadPaused: "En pause : reprend quand vous revenez dans l'app",
     cancel: "Annuler", formatAndUse: "Formater et utiliser",
     errors: {
+      "NAS disk is full": "Le disque du NAS est plein",
       "Backup disk not available": "Disque de sauvegarde indisponible", "A backup is already running": "Une sauvegarde est déjà en cours",
       "Can't move a folder into itself": "Impossible de déplacer un dossier dans lui-même",
       "NAS disk not available": "Disque NAS indisponible",
@@ -273,6 +276,7 @@ const MESSAGES = {
     uploadPaused: "Pausiert: geht weiter, wenn du zur App zurückkehrst",
     cancel: "Abbrechen", formatAndUse: "Formatieren und verwenden",
     errors: {
+      "NAS disk is full": "Die NAS-Festplatte ist voll",
       "Backup disk not available": "Backup-Festplatte nicht verfügbar", "A backup is already running": "Es läuft bereits ein Backup",
       "Can't move a folder into itself": "Ein Ordner kann nicht in sich selbst verschoben werden",
       "NAS disk not available": "NAS-Festplatte nicht verfügbar",

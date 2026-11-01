@@ -133,5 +133,6 @@ def owner(key: str) -> Optional[User]:
                     device["last_used"] = int(time.time())
                     _save(devices)
                 return User(id=device["user_id"], name=device["user_name"],
-                            display_name=device["display_name"], is_admin=False, device=device["name"])
+                            display_name=device["display_name"], is_admin=False,
+                            device=device["name"], device_id=device["id"])
     return None

@@ -1,4 +1,5 @@
 import asyncio
+import errno
 import io
 import os
 import secrets
@@ -7,9 +8,10 @@ import tempfile
 import time
 from pathlib import Path
 
+import aiohttp
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import FileResponse, HTMLResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from urllib.parse import urlencode
 
@@ -21,7 +23,7 @@ import segno
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
-app = FastAPI(title="NAS Assistant", version="0.12.4")
+app = FastAPI(title="NAS Assistant", version="0.13.0")
 
 # Small boards: decode at most two big images at once. Waiting requests queue
 # here, outside the worker threads, so uploads and browsing never stall behind them.
@@ -31,6 +33,26 @@ _thumb_slots = asyncio.Semaphore(2)
 @app.on_event("startup")
 async def start_backup_scheduler():
     asyncio.get_running_loop().create_task(backup.scheduler())
+
+
+@app.on_event("startup")
+async def find_home_address():
+    """The IP address of Home Assistant on the home network, from the Supervisor."""
+    global LAN_IP_URL
+    token = os.environ.get("SUPERVISOR_TOKEN")
+    if not token:
+        return
+    try:
+        async with aiohttp.ClientSession(headers={"Authorization": f"Bearer {token}"},
+                                         timeout=aiohttp.ClientTimeout(total=10)) as session:
+            async with session.get("http://supervisor/network/info") as resp:
+                interfaces = (await resp.json()).get("data", {}).get("interfaces", [])
+        for iface in sorted(interfaces, key=lambda i: not i.get("primary")):
+            for address in (iface.get("ipv4") or {}).get("address") or []:
+                LAN_IP_URL = f"http://{address.split('/')[0]}:8456"
+                return
+    except (aiohttp.ClientError, TimeoutError, ValueError):
+        pass
 
 
 @app.on_event("startup")
@@ -47,6 +69,7 @@ def keep_temp_files_on_nas_disk():
 
 PUBLIC_URL = os.environ.get("NAS_PUBLIC_URL", "").rstrip("/")
 LAN_URL = "http://homeassistant.local:8456"
+LAN_IP_URL = ""  # e.g. http://192.168.1.10:8456, found at startup: Android can't resolve .local names
 PHOTO_FOLDERS = {"it": "Foto", "es": "Fotos", "de": "Fotos", "fr": "Photos"}
 UPLOAD_FOLDERS = {"it": "Caricati", "es": "Subidas", "de": "Hochgeladen", "fr": "Importés"}
 
@@ -68,7 +91,7 @@ def list_devices(user: User = Depends(current_user)):
 
 
 def _base_urls() -> dict:
-    return {"public": PUBLIC_URL, "lan": LAN_URL}
+    return {"public": PUBLIC_URL, "lan": LAN_URL, "lan_ip": LAN_IP_URL}
 
 
 @app.post("/api/devices/pairing")
@@ -77,7 +100,7 @@ async def start_pairing(user: User = Depends(current_user)):
     pairing = devices.start_pairing(user)
     # A web address, so a phone camera without the app opens a page that explains what to do.
     # The code is after "#": browsers never send that part to the server or to Cloudflare.
-    params = urlencode({"v": 1, "code": pairing["code"], "url": PUBLIC_URL, "lan": LAN_URL})
+    params = urlencode({"v": 1, "code": pairing["code"], "url": PUBLIC_URL, "lan": LAN_URL, "ip": LAN_IP_URL})
     text = f"{PUBLIC_URL or LAN_URL}/pair#{params}"
     svg = io.BytesIO()
     segno.make(text, error="m").save(svg, kind="svg", scale=6, border=2, dark="#0b1f4d", xmldecl=False, svgns=True)
@@ -102,6 +125,15 @@ async def pair_device(request: Request):
     result = await run_in_threadpool(devices.pair, body["code"], str(body.get("name", ""))[:60],
                                      str(body.get("platform", ""))[:20], client)
     return {**result, "urls": _base_urls()}
+
+
+@app.delete("/api/device")
+def disconnect_self(user: User = Depends(uploader)):
+    """The app's "Disconnect": a device removes its own key."""
+    if not user.device_id:
+        raise HTTPException(400, "Only a device can disconnect itself")
+    devices.revoke(user, user.device_id)
+    return {"ok": True}
 
 
 @app.get("/api/device/info")
@@ -174,8 +206,9 @@ async def device_upload(request: Request, file: UploadFile = File(...), space: s
 def _device_partial(user: User, name: str) -> Path:
     """Where a chunked device upload grows: one hidden file per user and name."""
     name = storage._check_name(os.path.basename(name))
-    folder = _incoming() / user.id
-    folder.mkdir(exist_ok=True)
+    # One folder per device: two phones of the same person may send files with the same name.
+    folder = _incoming() / user.id / (user.device_id or "web")
+    folder.mkdir(parents=True, exist_ok=True)
     return folder / f".{name}.part"
 
 
@@ -222,6 +255,14 @@ async def user_avatar(user: User = Depends(current_user)):
     if not picture:
         raise HTTPException(404, "Not found")
     return Response(picture[0], media_type=picture[1], headers={"Cache-Control": "private, max-age=600"})
+
+
+@app.exception_handler(OSError)
+async def disk_errors(request: Request, err: OSError):
+    """A full NAS disk is the most likely write error: say so plainly (507 Insufficient Storage)."""
+    if err.errno == errno.ENOSPC:
+        return JSONResponse({"detail": "NAS disk is full"}, status_code=507)
+    raise err
 
 
 @app.get("/api/me")
