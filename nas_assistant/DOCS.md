@@ -51,6 +51,10 @@ Use two different physical disks: two partitions of the same disk don't protect 
 
 Web pages can't upload in the background on phones: the browser pauses them as soon as the screen locks.
 
+**With the Home Assistant app only**: open NAS Assistant from its sidebar and upload as usual. The screen stays on
+while uploading (where the phone allows it); if you leave the app, the upload pauses and continues by itself from
+where it stopped when you come back. Automatic camera-roll backup needs the NAS Assistant app.
+
 **With the NAS Assistant app (iPhone and Android, coming soon)**: on the Home page open
 **iPhone and devices → Connect a phone** and scan the QR code with the app. The code works once and for
 10 minutes only; the key it is exchanged for goes straight into the phone's secure storage and never appears on

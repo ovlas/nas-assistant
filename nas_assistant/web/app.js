@@ -1244,6 +1244,16 @@ async function uploadOne(file, path, onProgress) {
       attempts = 0;
     } catch (err) {
       if (err.offset !== undefined) { offset = err.offset; continue; }  // server tells where to resume
+      // Phone locked or app in the background (e.g. the Home Assistant app): wait, then go on from where it stopped.
+      if (document.hidden || !navigator.onLine) {
+        $("toast-text").textContent = t("uploadPaused");
+        await untilBack();
+        attempts = 0;
+        try {
+          ({ offset } = await api(`api/upload?${qs({ space: state.space, path, name: file.name })}`));
+        } catch { /* try the same piece again */ }
+        continue;
+      }
       if (++attempts >= RETRIES) throw err;
       $("toast-text").textContent = t("retrying", { i: attempts, n: RETRIES - 1 });
       await sleep(2000 * attempts);
@@ -1255,8 +1265,31 @@ async function uploadOne(file, path, onProgress) {
   }
 }
 
+// Resolves when the page is visible and online again.
+function untilBack() {
+  return new Promise((resolve) => {
+    const check = () => {
+      if (document.hidden || !navigator.onLine) return;
+      document.removeEventListener("visibilitychange", check);
+      window.removeEventListener("online", check);
+      setTimeout(resolve, 1000);  // let the network come back up
+    };
+    document.addEventListener("visibilitychange", check);
+    window.addEventListener("online", check);
+    check();
+  });
+}
+
+// Keep the screen on while uploading, where the browser allows it, so the phone doesn't lock mid-way.
+async function keepAwake() {
+  try { return await navigator.wakeLock.request("screen"); } catch { return null; }
+}
+
 async function upload(files) {
   if (!files.length) return;
+  let wakeLock = await keepAwake();
+  const reacquire = async () => { if (!document.hidden && wakeLock && wakeLock.released) wakeLock = await keepAwake(); };
+  document.addEventListener("visibilitychange", reacquire);
   // In the gallery new photos go to Photos/<year>/<month>, like a camera roll.
   const now = new Date();
   const target = state.view === "photos"
@@ -1277,6 +1310,8 @@ async function upload(files) {
   }
   $("toast-text").textContent = errors.length ? t("notUploaded", { n: errors.length }) : t("uploaded", { n: files.length });
   $("toast-bar").style.width = "100%";
+  document.removeEventListener("visibilitychange", reacquire);
+  if (wakeLock) wakeLock.release().catch(() => {});
   if (errors.length) alert(errors.join("\n"));
   setTimeout(() => { $("toast").hidden = true; $("toast-bar").style.width = "0"; }, 2500);
   render();
