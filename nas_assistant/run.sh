@@ -3,7 +3,9 @@ set -e
 
 # Disk picked from the device list in the Configuration tab. The Supervisor grants
 # the add-on access to that one disk, so it works with protection mode on.
-DEVICE_OPTION="$(bashio::config 'device')"
+# Unset optional options come back as "null": read them only when they have a value.
+DEVICE_OPTION=""
+if bashio::config.has_value 'device'; then DEVICE_OPTION="$(bashio::config 'device')"; fi
 DISK="$(bashio::config 'disk')"
 # Disk chosen from the setup wizard, used when the option is left empty.
 if ! bashio::var.has_value "${DISK}" && [ -f /data/disk.json ]; then
@@ -41,7 +43,8 @@ fi
 
 # Optional second disk for backups, mounted on /backup. It is used as is:
 # backups only ever write inside its "NAS Assistant Backup" folder.
-BACKUP_OPTION="$(bashio::config 'backup_device')"
+BACKUP_OPTION=""
+if bashio::config.has_value 'backup_device'; then BACKUP_OPTION="$(bashio::config 'backup_device')"; fi
 export NAS_BACKUP_ROOT=/backup
 export NAS_BACKUP_TIME="$(bashio::config 'backup_time')"
 export NAS_BACKUP_KEEP_DAYS="$(bashio::config 'backup_keep_days')"
