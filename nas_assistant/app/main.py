@@ -1,6 +1,7 @@
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -9,7 +10,7 @@ from .auth import User, admin_user, current_user
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
-app = FastAPI(title="NAS Assistant", version="0.2.4")
+app = FastAPI(title="NAS Assistant", version="0.2.5")
 
 
 @app.get("/api/me")
@@ -28,15 +29,29 @@ def list_disks(user: User = Depends(admin_user)):
     return {"disks": disks.list_disks()}
 
 
+async def _fields(request: Request, *names: str) -> list:
+    """Read fields from a form (web UI) or a JSON body (mobile apps)."""
+    if request.headers.get("content-type", "").startswith("application/json"):
+        data = await request.json()
+    else:
+        data = await request.form()
+    values = [data.get(name) for name in names]
+    if not all(isinstance(v, str) and v for v in values):
+        raise HTTPException(422, f"Campi richiesti: {', '.join(names)}")
+    return values
+
+
 @app.post("/api/disks/use")
-def use_disk(uuid: str = Form(...), user: User = Depends(admin_user)):
-    disks.use_partition(uuid)
+async def use_disk(request: Request, user: User = Depends(admin_user)):
+    (uuid,) = await _fields(request, "uuid")
+    await run_in_threadpool(disks.use_partition, uuid)
     return {"ok": True}
 
 
 @app.post("/api/disks/format")
-def format_disk(path: str = Form(...), confirm: str = Form(...), user: User = Depends(admin_user)):
-    disks.format_disk(path, confirm)
+async def format_disk(request: Request, user: User = Depends(admin_user)):
+    path, confirm = await _fields(request, "path", "confirm")
+    await run_in_threadpool(disks.format_disk, path, confirm)
     return {"ok": True}
 
 
