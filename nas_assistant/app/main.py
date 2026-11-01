@@ -12,7 +12,7 @@ from .auth import User, admin_user, current_user
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
-app = FastAPI(title="NAS Assistant", version="0.4.0")
+app = FastAPI(title="NAS Assistant", version="0.5.0")
 
 # Small boards: decode at most two big images at once. Waiting requests queue
 # here, outside the worker threads, so uploads and browsing never stall behind them.
@@ -35,14 +35,15 @@ def list_disks(user: User = Depends(admin_user)):
     return {"disks": disks.list_disks()}
 
 
-async def _fields(request: Request, *names: str) -> list:
-    """Read fields from a form (web UI) or a JSON body (mobile apps)."""
+async def _fields(request: Request, *names: str, optional: tuple = ()) -> list:
+    """Read fields from a form (web UI) or a JSON body (mobile apps).
+    Fields listed in `optional` may be empty, e.g. the root folder path."""
     if request.headers.get("content-type", "").startswith("application/json"):
         data = await request.json()
     else:
         data = await request.form()
-    values = [data.get(name) for name in names]
-    if not all(isinstance(v, str) and v for v in values):
+    values = [data.get(name, "" if name in optional else None) for name in names]
+    if not all(isinstance(v, str) and (v or n in optional) for n, v in zip(names, values)):
         raise HTTPException(422, f"Required fields: {', '.join(names)}")
     return values
 
@@ -64,6 +65,23 @@ async def format_disk(request: Request, user: User = Depends(admin_user)):
 @app.get("/api/files")
 async def list_files(space: str = "personal", path: str = "", user: User = Depends(current_user)):
     return {"space": space, "path": path, "entries": storage.list_dir(user, space, path)}
+
+
+@app.get("/api/files/by-kind")
+def files_by_kind(space: str, kind: str, user: User = Depends(current_user)):
+    return {"space": space, "kind": kind, "entries": storage.files_by_kind(user, space, kind)}
+
+
+@app.post("/api/rename")
+async def rename(request: Request, user: User = Depends(current_user)):
+    space, path, name = await _fields(request, "space", "path", "name")
+    return storage.rename(user, space, path, name)
+
+
+@app.post("/api/move")
+async def move(request: Request, user: User = Depends(current_user)):
+    space, path, to_space, to_path = await _fields(request, "space", "path", "to_space", "to_path", optional=("to_path",))
+    return await run_in_threadpool(storage.move, user, space, path, to_space, to_path)
 
 
 @app.get("/api/photos")

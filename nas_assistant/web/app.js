@@ -1,5 +1,5 @@
 // All URLs are relative so the UI works behind Ingress (/api/hassio_ingress/<token>/).
-const state = { space: "personal", view: "photos", path: "", user: null, items: [], viewerIndex: -1 };
+const state = { space: "personal", view: "photos", path: "", kind: "all", user: null, items: [], viewerIndex: -1 };
 const $ = (id) => document.getElementById(id);
 
 // --- Icons (outline, SF Symbols-like) -----------------------------------------
@@ -20,7 +20,17 @@ const ICON_PATHS = {
   play: '<path d="M8 5.5v13l10.5-6.5z" fill="currentColor"/>',
   file: '<path d="M7 3h6.5L19 8.5V19a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M13 3v6h6"/>',
   video: '<rect x="3" y="6" width="13" height="12" rx="2.5"/><path d="M16 10.5l5-3v9l-5-3"/>',
+  audio: '<path d="M9 18V6l11-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="17.5" cy="16" r="2.5"/>',
+  document: '<path d="M7 3h6.5L19 8.5V19a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M13 3v6h6M8.5 13h7M8.5 16.5h5"/>',
+  archive: '<rect x="3.5" y="4" width="17" height="5" rx="1.5"/><path d="M5 9v9.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V9M10 13h4"/>',
+  more: '<circle cx="5.5" cy="12" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/><circle cx="18.5" cy="12" r="1.3" fill="currentColor"/>',
+  rename: '<path d="M14.5 5.5l4 4M4 20l1-4.5L15.8 4.7a1.8 1.8 0 0 1 2.5 0l1 1a1.8 1.8 0 0 1 0 2.5L8.5 19z"/>',
+  move: '<path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H9l2 2.2h7.5A2.5 2.5 0 0 1 21 9.7v7.8a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5z"/><path d="M9 13.5h6M12.5 11l2.5 2.5-2.5 2.5"/>',
 };
+
+// File types, as catalogued by the server (app/kinds.py).
+const KIND_ICONS = { image: "photos", video: "video", audio: "audio", document: "document", archive: "archive", other: "file" };
+const KIND_FILTERS = ["all", "image", "video", "audio", "document", "archive", "other"];
 
 function icon(name) {
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${ICON_PATHS[name] || ""}</svg>`;
@@ -81,8 +91,9 @@ function fadeIn(img) {
 
 // --- Navigation ---------------------------------------------------------------
 
-function go(space, view, path = "") {
-  Object.assign(state, { space, view, path });
+function go(space, view, path = "", kind = "all") {
+  Object.assign(state, { space, view, path, kind });
+  closeMenu();
   document.querySelectorAll(".nav-item").forEach((b) =>
     b.classList.toggle("active", b.dataset.space === space && b.dataset.view === view));
   render();
@@ -103,6 +114,7 @@ function render() {
   $("gallery").innerHTML = "";
   $("files").innerHTML = "";
   $("crumbs").innerHTML = "";
+  $("chips").innerHTML = "";
   showEmpty(null);
   return state.view === "photos" ? renderGallery() : renderFiles();
 }
@@ -167,21 +179,39 @@ function tile(item, index) {
 async function renderFiles() {
   const root = t(state.space === "personal" ? "files" : "sharedFiles");
   setHeader(root, t(state.space === "personal" ? "mySpace" : "family"));
-  renderCrumbs(root);
+  renderChips();
+  if (state.kind === "all") renderCrumbs(root);
+  $("new-folder").hidden = state.kind !== "all";
   let entries;
   try {
-    ({ entries } = await api(`api/files?${qs({ space: state.space, path: state.path })}`));
+    ({ entries } = state.kind === "all"
+      ? await api(`api/files?${qs({ space: state.space, path: state.path })}`)
+      : await api(`api/files/by-kind?${qs({ space: state.space, kind: state.kind })}`));
   } catch (err) {
     return showEmpty(t("folderOpenError"), err.message);
   }
-  // The viewer browses the photos and videos of this folder.
+  for (const e of entries) e.path = e.path || join(state.path, e.name);
+  // The viewer browses the photos and videos of this list.
   state.items = entries.filter((e) => !e.is_dir && kindOf(e.name))
-    .map((e) => ({ path: join(state.path, e.name), name: e.name, kind: kindOf(e.name), taken: e.modified, v: e.v }));
+    .map((e) => ({ path: e.path, name: e.name, kind: kindOf(e.name), taken: e.modified, v: e.v }));
   if (!entries.length) {
-    return showEmpty(t("emptyFolderTitle"), t("emptyFolderText"));
+    return state.kind === "all"
+      ? showEmpty(t("emptyFolderTitle"), t("emptyFolderText"))
+      : showEmpty(t("noKindTitle"), t("noKindText"));
   }
   const list = $("files");
   for (const entry of entries) list.append(fileRow(entry));
+}
+
+function renderChips() {
+  const chips = $("chips");
+  for (const kind of KIND_FILTERS) {
+    const chip = el("button", kind === state.kind ? "chip active" : "chip");
+    if (kind !== "all") chip.append(iconEl(KIND_ICONS[kind]));
+    chip.append(el("span", "", t(`kind_${kind}`)));
+    chip.onclick = () => go(state.space, "files", kind === "all" ? state.path : "", kind);
+    chips.append(chip);
+  }
 }
 
 function renderCrumbs(root) {
@@ -192,13 +222,14 @@ function renderCrumbs(root) {
     if (i) crumbs.append(iconEl("right"));
     const a = el("a", "", label);
     a.onclick = () => go(state.space, "files", parts.slice(0, i).join("/"));
+    if (i < parts.length) dropTarget(a, parts.slice(0, i).join("/"));
     crumbs.append(a);
   });
   crumbs.querySelectorAll("i").forEach((i) => { i.style.width = i.style.height = "14px"; });
 }
 
 function fileRow(entry) {
-  const path = join(state.path, entry.name);
+  const path = entry.path;
   const kind = entry.is_dir ? null : kindOf(entry.name);
   const row = el("div", "row");
 
@@ -207,39 +238,45 @@ function fileRow(entry) {
     const img = el("img");
     img.loading = "lazy";
     img.src = thumbUrl(path, entry.v);
-    img.onerror = () => { thumb.innerHTML = ""; thumb.append(iconEl(kind === "video" ? "video" : "photos")); };
+    img.onerror = () => { thumb.innerHTML = ""; thumb.append(iconEl(KIND_ICONS[kind])); };
     thumb.append(img);
   } else {
-    thumb.append(iconEl(entry.is_dir ? "folder" : "file"));
+    thumb.append(iconEl(entry.is_dir ? "folder" : KIND_ICONS[entry.kind] || "file"));
   }
 
   const actions = el("div", "row-actions");
-  if (!entry.is_dir) {
-    const dl = el("a", "icon-btn");
-    dl.href = fileUrl(path);
-    dl.title = t("download");
-    dl.append(iconEl("download"));
-    dl.onclick = (e) => e.stopPropagation();
-    actions.append(dl);
-  }
-  const del = el("button", "icon-btn");
-  del.title = t("moveToTrash");
-  del.append(iconEl("trash"));
-  del.onclick = async (e) => {
-    e.stopPropagation();
-    if (!confirm(t("confirmTrash", { name: entry.name }))) return;
-    await removeItem(path);
-    render();
+  const more = el("button", "icon-btn");
+  more.title = t("more");
+  more.append(iconEl("more"));
+  more.onclick = (e) => { e.stopPropagation(); openMenu(entry, more.getBoundingClientRect()); };
+  actions.append(more);
+  row.oncontextmenu = (e) => {
+    e.preventDefault();
+    openMenu(entry, { left: e.clientX, right: e.clientX, top: e.clientY, bottom: e.clientY });
   };
-  actions.append(del);
 
+  const name = el("div", "name");
+  name.append(el("div", "", entry.name));
+  if (state.kind !== "all") {
+    // Catalogue view: say which folder the file is in.
+    const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : t(state.space === "personal" ? "files" : "sharedFiles");
+    name.append(el("div", "where", folder));
+  }
   row.append(
     thumb,
-    el("div", "name", entry.name),
+    name,
     el("div", "meta", shortFmt.format(entry.modified * 1000)),
     el("div", "meta", entry.is_dir ? "—" : formatSize(entry.size)),
     actions,
   );
+
+  // Drag a row onto a folder (or a breadcrumb) to move it.
+  row.draggable = true;
+  row.ondragstart = (e) => {
+    e.dataTransfer.setData(DRAG_TYPE, JSON.stringify({ space: state.space, path }));
+    e.dataTransfer.effectAllowed = "move";
+  };
+  if (entry.is_dir) dropTarget(row, path);
   row.onclick = () => {
     if (entry.is_dir) return go(state.space, "files", path);
     if (kind) return openViewer(state.items.findIndex((i) => i.path === path));
@@ -252,6 +289,141 @@ async function removeItem(path) {
   await api(`api/files?${qs({ space: state.space, path })}`, { method: "DELETE" });
   loadStatus();
 }
+
+const post = (url, fields) => {
+  const form = new FormData();
+  for (const [key, value] of Object.entries(fields)) form.append(key, value);
+  return api(url, { method: "POST", body: form });
+};
+
+// --- Rename, move, context menu ----------------------------------------------
+
+const DRAG_TYPE = "application/x-nas-item";
+
+function dropTarget(node, folder) {
+  const ours = (e) => e.dataTransfer.types.includes(DRAG_TYPE);
+  node.addEventListener("dragover", (e) => {
+    if (!ours(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    node.classList.add("drop");
+  });
+  node.addEventListener("dragleave", () => node.classList.remove("drop"));
+  node.addEventListener("drop", (e) => {
+    if (!ours(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    node.classList.remove("drop");
+    const item = JSON.parse(e.dataTransfer.getData(DRAG_TYPE));
+    if (item.path === folder) return;
+    moveItem(item.space, item.path, state.space, folder);
+  });
+}
+
+async function moveItem(space, path, toSpace, toPath) {
+  try {
+    await post("api/move", { space, path, to_space: toSpace, to_path: toPath });
+  } catch (err) {
+    alert(err.message);
+  }
+  render();
+}
+
+async function renameItem(entry) {
+  const name = prompt(t("renamePrompt"), entry.name);
+  if (!name || name === entry.name) return;
+  try {
+    await post("api/rename", { space: state.space, path: entry.path, name });
+  } catch (err) {
+    alert(err.message);
+  }
+  render();
+}
+
+function closeMenu() {
+  $("menu").hidden = true;
+}
+
+function openMenu(entry, rect) {
+  const menu = $("menu");
+  menu.innerHTML = "";
+  const item = (iconName, label, action, danger) => {
+    const b = el("button", danger ? "danger" : "");
+    b.append(iconEl(iconName), el("span", "", label));
+    b.onclick = () => { closeMenu(); action(); };
+    menu.append(b);
+  };
+  item("rename", t("rename"), () => renameItem(entry));
+  item("move", t("moveTo"), () => openMoveDialog(entry));
+  if (!entry.is_dir) item("download", t("download"), () => { location.href = fileUrl(entry.path); });
+  item("trash", t("moveToTrash"), async () => {
+    if (!confirm(t("confirmTrash", { name: entry.name }))) return;
+    await removeItem(entry.path);
+    render();
+  }, true);
+  menu.hidden = false;
+  // Open below the button, or above it near the bottom of the screen.
+  const { offsetWidth: w, offsetHeight: h } = menu;
+  menu.style.left = `${Math.max(8, Math.min(rect.right - w, innerWidth - w - 8))}px`;
+  menu.style.top = `${rect.bottom + h + 8 > innerHeight ? Math.max(8, rect.top - h - 4) : rect.bottom + 4}px`;
+}
+
+document.addEventListener("click", (e) => { if (!$("menu").contains(e.target)) closeMenu(); });
+document.addEventListener("scroll", closeMenu, true);
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeMenu(); });
+
+// Folder picker: browse My space and Family, then "Move here".
+const picker = { space: "personal", path: "", entry: null, from: null };
+
+function openMoveDialog(entry) {
+  Object.assign(picker, { space: state.space, path: state.kind === "all" ? state.path : "", entry, from: state.space });
+  $("move-title").textContent = t("moveTitle", { name: entry.name });
+  $("move-dialog").showModal();
+  renderPicker();
+}
+
+async function renderPicker() {
+  document.querySelectorAll("#move-spaces button").forEach((b) => b.classList.toggle("active", b.dataset.space === picker.space));
+  const crumbs = $("move-crumbs");
+  crumbs.innerHTML = "";
+  const parts = picker.path ? picker.path.split("/") : [];
+  [t(picker.space === "personal" ? "files" : "sharedFiles"), ...parts].forEach((label, i) => {
+    if (i) crumbs.append(iconEl("right"));
+    const a = el("a", "", label);
+    a.onclick = () => { picker.path = parts.slice(0, i).join("/"); renderPicker(); };
+    crumbs.append(a);
+  });
+  const list = $("move-list");
+  list.replaceChildren(el("p", "muted", "…"));
+  let entries = [];
+  try {
+    ({ entries } = await api(`api/files?${qs({ space: picker.space, path: picker.path })}`));
+  } catch (err) {
+    return list.replaceChildren(el("p", "muted", err.message));
+  }
+  // A folder can't go inside itself.
+  const moving = picker.space === picker.from && picker.entry.is_dir ? picker.entry.path : null;
+  const folders = entries.filter((e) => e.is_dir && join(picker.path, e.name) !== moving);
+  list.innerHTML = "";
+  if (!folders.length) list.append(el("p", "muted", t("noSubfolders")));
+  for (const folder of folders) {
+    const b = el("button", "pick");
+    b.append(iconEl("folder"), el("span", "", folder.name), iconEl("right"));
+    b.onclick = () => { picker.path = join(picker.path, folder.name); renderPicker(); };
+    list.append(b);
+  }
+  const current = picker.entry.path.includes("/") ? picker.entry.path.slice(0, picker.entry.path.lastIndexOf("/")) : "";
+  $("move-ok").disabled = picker.space === picker.from && picker.path === current;
+}
+
+document.querySelectorAll("#move-spaces button").forEach((b) => {
+  b.onclick = () => { picker.space = b.dataset.space; picker.path = ""; renderPicker(); };
+});
+$("move-ok").onclick = () => {
+  $("move-dialog").close();
+  moveItem(picker.from, picker.entry.path, picker.space, picker.path);
+};
+$("move-cancel").onclick = () => $("move-dialog").close();
 
 // --- Viewer -------------------------------------------------------------------
 
@@ -423,9 +595,15 @@ async function upload(files) {
 
 $("file-input").onchange = (e) => { upload([...e.target.files]); e.target.value = ""; };
 const main = $("main");
-main.ondragover = (e) => { e.preventDefault(); if (!$("setup").hidden) return; main.classList.add("dragging"); };
+const draggingFiles = (e) => e.dataTransfer.types.includes("Files");
+main.ondragover = (e) => {
+  if (!draggingFiles(e)) return;
+  e.preventDefault();
+  if ($("setup").hidden) main.classList.add("dragging");
+};
 main.ondragleave = (e) => { if (!main.contains(e.relatedTarget)) main.classList.remove("dragging"); };
 main.ondrop = (e) => {
+  if (!draggingFiles(e)) return;
   e.preventDefault();
   main.classList.remove("dragging");
   if ($("setup").hidden) upload([...e.dataTransfer.files]);
@@ -434,11 +612,7 @@ main.ondrop = (e) => {
 $("new-folder").onclick = async () => {
   const name = prompt(t("newFolderPrompt"));
   if (!name) return;
-  const form = new FormData();
-  form.append("space", state.space);
-  form.append("path", state.path);
-  form.append("name", name);
-  try { await api("api/folders", { method: "POST", body: form }); render(); }
+  try { await post("api/folders", { space: state.space, path: state.path, name }); render(); }
   catch (err) { alert(err.message); }
 };
 
@@ -532,12 +706,10 @@ function diskItem(disk) {
 }
 
 async function runDiskAction(button, url, fields) {
-  const form = new FormData();
-  for (const [key, value] of Object.entries(fields)) form.append(key, value);
   document.querySelectorAll(".disk-item button").forEach((b) => (b.disabled = true));
   button.textContent = t("wait");
   try {
-    await api(url, { method: "POST", body: form });
+    await post(url, fields);
     if (await loadStatus()) render();
   } catch (err) {
     alert(err.message);

@@ -17,6 +17,7 @@ from fastapi import HTTPException
 
 from . import disks
 from .auth import User
+from .kinds import KINDS, kind_of
 
 NAS_ROOT = disks.NAS_ROOT
 CHUNK = 1024 * 1024
@@ -75,9 +76,36 @@ def list_dir(user: User, space: str, rel_path: str) -> List[dict]:
             "size": 0 if entry.is_dir() else stat.st_size,
             "modified": int(stat.st_mtime),
             "v": stat.st_mtime_ns,
+            "kind": None if entry.is_dir() else kind_of(entry.name),
         })
     entries.sort(key=lambda e: (not e["is_dir"], e["name"].lower()))
     return entries
+
+
+def files_by_kind(user: User, space: str, kind: str) -> List[dict]:
+    """Every file of one type in the whole space, newest first."""
+    if kind not in KINDS and kind != "other":
+        raise HTTPException(400, "Unknown type")
+    root = resolve(user, space, "")
+    found = []
+    for folder, dirs, files in os.walk(root):
+        dirs[:] = [d for d in dirs if not d.startswith(".")]
+        for name in files:
+            if name.startswith(".") or kind_of(name) != kind:
+                continue
+            full = Path(folder) / name
+            stat = full.stat()
+            found.append({
+                "name": name,
+                "path": str(full.relative_to(root)),
+                "is_dir": False,
+                "size": stat.st_size,
+                "modified": int(stat.st_mtime),
+                "v": stat.st_mtime_ns,
+                "kind": kind,
+            })
+    found.sort(key=lambda e: e["modified"], reverse=True)
+    return found
 
 
 def make_dir(user: User, space: str, rel_path: str, name: str) -> None:
@@ -105,6 +133,40 @@ def chunk_targets(user: User, space: str, rel_path: str, name: str):
     folder.mkdir(parents=True, exist_ok=True)
     target = folder / _check_name(name)
     return folder / f".{target.name}.part", target
+
+
+def _movable(user: User, space: str, rel_path: str) -> Path:
+    src = resolve(user, space, rel_path)
+    if src == _space_root(user, space).resolve():
+        raise HTTPException(400, "Can't change the root folder")
+    if not src.exists():
+        raise HTTPException(404, "Not found")
+    return src
+
+
+def rename(user: User, space: str, rel_path: str, new_name: str) -> dict:
+    src = _movable(user, space, rel_path)
+    dst = src.parent / _check_name(new_name)
+    # A case-only change ("foto.JPG" -> "Foto.jpg") is the same file on NTFS/exFAT.
+    if dst.exists() and not os.path.samefile(src, dst):
+        raise HTTPException(409, "Already exists")
+    os.rename(src, dst)
+    return {"name": dst.name}
+
+
+def move(user: User, space: str, rel_path: str, to_space: str, to_path: str) -> dict:
+    """Move a file or folder to another folder, also between My space and Family."""
+    src = _movable(user, space, rel_path)
+    folder = resolve(user, to_space, to_path)
+    if not folder.is_dir():
+        raise HTTPException(404, "Folder not found")
+    if src.is_dir() and (folder == src or src in folder.parents):
+        raise HTTPException(400, "Can't move a folder into itself")
+    dst = folder / src.name
+    if dst.exists():
+        raise HTTPException(409, "Already exists")
+    shutil.move(str(src), str(dst))  # same disk: an instant rename, nothing is copied
+    return {"path": str(dst.relative_to(_space_root(user, to_space).resolve()))}
 
 
 def move_to_trash(user: User, space: str, rel_path: str) -> None:

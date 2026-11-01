@@ -17,6 +17,7 @@ from fastapi import HTTPException
 from PIL import Image, ImageOps
 
 from . import disks, storage
+from .kinds import media_kind as kind_of
 from .auth import User
 
 try:
@@ -26,21 +27,10 @@ try:
 except ImportError:
     pass
 
-IMAGE_EXT = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".heic", ".heif", ".bmp", ".tif", ".tiff"}
-VIDEO_EXT = {".mp4", ".mov", ".m4v", ".webm", ".mkv", ".avi", ".3gp"}
 THUMB_SIZES = {"s": 400, "l": 1600}
 EXIF_IFD = 0x8769
 EXIF_DATE_TAGS = (36867, 36868)  # DateTimeOriginal, DateTimeDigitized
 TIFF_DATE_TAG = 306  # DateTime
-
-
-def kind_of(name: str) -> Optional[str]:
-    ext = os.path.splitext(name)[1].lower()
-    if ext in IMAGE_EXT:
-        return "image"
-    if ext in VIDEO_EXT:
-        return "video"
-    return None
 
 
 def _meta_dir() -> Path:

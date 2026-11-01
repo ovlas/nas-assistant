@@ -94,6 +94,7 @@ App options: "Wi-Fi only", "only while charging", "only at home".
 - [x] Dedicated disk mount + guided setup (use as is, or format as ext4)
 - [x] Photo/video thumbnails (Pillow + HEIC, ffmpeg) and timeline gallery
 - [x] Resumable chunked uploads
+- [x] Catalogue by file type, rename, move (also between My space and Family)
 - [x] Multilingual UI (English, Italiano, Español, Français, Deutsch)
 - [ ] Per-user quotas
 - [ ] Sensors in HA

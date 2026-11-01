@@ -30,6 +30,10 @@ waits and writes nothing to the main disk.
 - **Family photos / Shared files**: the same, shared with every Home Assistant user.
 - Drag and drop files anywhere, or press **Upload**. Large files are sent in pieces and resume by themselves
   if the connection drops.
+- **Filter by type** in Files: Photos, Videos, Music, Documents, Archives, Other. Each filter lists the files of that
+  type from the whole space, with the folder they are in.
+- **Rename and move** from the ⋯ menu of each file or folder (or right-click). You can also drag a file onto a folder
+  or onto the path at the top. Moving works between My space and Family too, and is instant: nothing is copied.
 - Deleted items go to a trash folder on the disk (`.trash/`), they are not erased right away.
 
 Each family member just needs a Home Assistant user: there are no other accounts.

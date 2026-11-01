@@ -38,6 +38,7 @@
         <label class="btn primary"><i data-icon="upload"></i><span data-i18n="upload"></span><input type="file" id="file-input" multiple hidden></label>
       </div>
     </header>
+    <nav class="chips" id="chips"></nav>
     <nav class="crumbs" id="crumbs"></nav>
 
     <section id="gallery" class="gallery"></section>
@@ -75,6 +76,22 @@
     <div class="toast-text" id="toast-text"></div>
     <div class="bar"><div class="bar-fill" id="toast-bar"></div></div>
   </div>
+
+  <div class="menu" id="menu" hidden></div>
+
+  <dialog id="move-dialog" class="move-dialog">
+    <h2 id="move-title"></h2>
+    <div class="segmented" id="move-spaces">
+      <button data-space="personal" data-i18n="mySpace"></button>
+      <button data-space="family" data-i18n="family"></button>
+    </div>
+    <nav class="crumbs" id="move-crumbs"></nav>
+    <div class="pick-list" id="move-list"></div>
+    <div class="dialog-actions">
+      <button class="btn" id="move-cancel" data-i18n="cancel"></button>
+      <button class="btn primary" id="move-ok" data-i18n="moveHere"></button>
+    </div>
+  </dialog>
 
   <dialog id="format-dialog">
     <form method="dialog">

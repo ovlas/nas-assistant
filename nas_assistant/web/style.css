@@ -63,6 +63,17 @@ main { flex: 1; min-width: 0; padding: 22px 30px 60px; position: relative; }
 .crumbs a:hover { background: var(--hover); color: var(--text); }
 .crumbs a:last-child { color: var(--text); font-weight: 600; }
 
+/* --- Type filters ------------------------------------------------------ */
+.chips { display: flex; gap: 8px; overflow-x: auto; margin: -4px 0 14px; padding-bottom: 2px; scrollbar-width: none; }
+.chips:empty { display: none; }
+.chips::-webkit-scrollbar { display: none; }
+.chip { display: inline-flex; align-items: center; gap: 6px; flex: none; padding: 6px 13px; border-radius: 999px; border: 1px solid var(--line);
+        background: var(--panel); color: var(--text); font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; }
+.chip i { width: 15px; height: 15px; color: var(--accent); }
+.chip:hover { background: var(--hover); }
+.chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.chip.active i { color: #fff; }
+
 /* --- Gallery ------------------------------------------------------------- */
 .month { margin-bottom: 26px; }
 .month h2 { position: sticky; top: 0; z-index: 2; margin: 0 -30px 10px; padding: 10px 30px; font-size: 19px;
@@ -89,9 +100,12 @@ main { flex: 1; min-width: 0; padding: 22px 30px 60px; position: relative; }
 .row .thumb i { width: 26px; height: 26px; color: var(--muted); }
 .row .thumb.folder { background: var(--accent-soft); }
 .row .thumb.folder i { color: var(--accent); }
-.row .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
+.row .name { min-width: 0; font-weight: 500; }
+.row .name div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row .name .where { font-size: 12px; font-weight: 400; color: var(--muted); }
+.row.drop, .crumbs a.drop { background: var(--accent-soft); box-shadow: inset 0 0 0 2px var(--accent); }
 .row .meta { color: var(--muted); font-size: 13px; white-space: nowrap; }
-.row .row-actions { display: flex; gap: 2px; justify-content: flex-end; opacity: 0; }
+.row .row-actions { display: flex; gap: 2px; justify-content: flex-end; opacity: .45; }
 .row:hover .row-actions { opacity: 1; }
 .icon-btn { display: inline-grid; place-items: center; width: 34px; height: 34px; border: 0; border-radius: 9px; background: none;
             cursor: pointer; color: inherit; text-decoration: none; }
@@ -149,6 +163,30 @@ dialog::backdrop { background: rgba(0,0,0,.45); }
 dialog h2 { margin-top: 0; }
 dialog input { width: 100%; padding: 9px 10px; border-radius: 9px; border: 1px solid var(--line); background: var(--bg); color: var(--text); font: inherit; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+
+/* --- Action menu, move dialog ------------------------------------------ */
+.menu { position: fixed; z-index: 50; min-width: 210px; padding: 6px; border-radius: 13px; background: var(--panel);
+        box-shadow: 0 0 0 1px var(--line), 0 12px 40px rgba(0,0,0,.2); }
+.menu button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 10px; border: 0; border-radius: 8px;
+               background: none; color: var(--text); font: inherit; font-size: 14px; text-align: left; cursor: pointer; }
+.menu button:hover { background: var(--hover); }
+.menu button i { width: 18px; height: 18px; color: var(--muted); }
+.menu button.danger, .menu button.danger i { color: var(--danger); }
+.move-dialog { width: min(440px, calc(100vw - 32px)); }
+.move-dialog h2 { font-size: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.segmented { display: flex; padding: 3px; border-radius: 10px; background: var(--hover); margin-bottom: 12px; }
+.segmented button { flex: 1; padding: 6px; border: 0; border-radius: 8px; background: none; color: var(--text); font: inherit; font-size: 13px; cursor: pointer; }
+.segmented button.active { background: var(--panel); font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+.move-dialog .crumbs { margin-bottom: 8px; }
+.move-dialog .crumbs i { width: 14px; height: 14px; }
+.pick-list { height: 260px; overflow-y: auto; border: 1px solid var(--line); border-radius: 10px; }
+.pick { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 12px; border: 0; border-bottom: 1px solid var(--line);
+        background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.pick:hover { background: var(--hover); }
+.pick span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pick i { width: 20px; height: 20px; color: var(--accent); }
+.pick i:last-child { width: 14px; height: 14px; color: var(--muted); }
+.muted { color: var(--muted); font-size: 14px; padding: 12px; margin: 0; }
 
 /* --- Phone: iOS-style bottom tab bar ---------------------------------- */
 @media (max-width: 760px) {
