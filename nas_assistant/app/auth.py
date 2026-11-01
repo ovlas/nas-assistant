@@ -34,6 +34,7 @@ class User:
     name: str
     display_name: str
     is_admin: bool = False
+    device: str = ""  # set when the request comes with a device key
 
 
 _token_cache: Dict[str, Tuple[float, User]] = {}

@@ -1,4 +1,5 @@
 import asyncio
+import io
 import os
 import secrets
 import shutil
@@ -10,14 +11,17 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Upload
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
+from urllib.parse import urlencode
 
 from . import backup, devices, disks, favorites, media, storage
 from .auth import User, admin_user, avatar, current_user
 from .kinds import media_kind
 
+import segno
+
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
-app = FastAPI(title="NAS Assistant", version="0.11.0")
+app = FastAPI(title="NAS Assistant", version="0.12.0")
 
 # Small boards: decode at most two big images at once. Waiting requests queue
 # here, outside the worker threads, so uploads and browsing never stall behind them.
@@ -63,6 +67,46 @@ def list_devices(user: User = Depends(current_user)):
     return {"devices": devices.listing(user), "public_url": PUBLIC_URL, "lan_url": LAN_URL}
 
 
+def _base_urls() -> dict:
+    return {"public": PUBLIC_URL, "lan": LAN_URL}
+
+
+@app.post("/api/devices/pairing")
+async def start_pairing(user: User = Depends(current_user)):
+    """A one-time QR code (10 minutes) for the mobile app to pair this phone."""
+    pairing = devices.start_pairing(user)
+    text = "nasassistant://pair?" + urlencode({"v": 1, "code": pairing["code"], "url": PUBLIC_URL, "lan": LAN_URL})
+    svg = io.BytesIO()
+    segno.make(text, error="m").save(svg, kind="svg", scale=6, border=2, dark="#0b1f4d", xmldecl=False, svgns=True)
+    return {**pairing, "qr": text, "qr_svg": svg.getvalue().decode(), "started": int(time.time())}
+
+
+@app.get("/api/devices/paired")
+def paired(since: int, user: User = Depends(current_user)):
+    return {"paired": devices.is_paired(user, since)}
+
+
+@app.post("/api/device/pair")
+async def pair_device(request: Request):
+    """Called by the app with the code read from the QR: no login, the code is the proof."""
+    try:
+        body = await request.json()
+    except ValueError:
+        raise HTTPException(422, "Required fields: code")
+    if not isinstance(body, dict) or not isinstance(body.get("code"), str):
+        raise HTTPException(422, "Required fields: code")
+    client = request.headers.get("CF-Connecting-IP") or (request.client.host if request.client else "")
+    result = await run_in_threadpool(devices.pair, body["code"], str(body.get("name", ""))[:60],
+                                     str(body.get("platform", ""))[:20], client)
+    return {**result, "urls": _base_urls()}
+
+
+@app.get("/api/device/info")
+def device_info(user: User = Depends(uploader)):
+    return {"user": {"display_name": user.display_name}, "device": {"name": user.device},
+            "usage": storage.usage(), "version": app.version}
+
+
 @app.post("/api/devices")
 async def add_device(request: Request, user: User = Depends(current_user)):
     (name,) = await _fields(request, "name")
@@ -76,14 +120,23 @@ def remove_device(id: str, user: User = Depends(current_user)):
     return {"ok": True}
 
 
+def _incoming() -> Path:
+    folder = disks.NAS_ROOT / ".nas_assistant" / "incoming"
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder
+
+
 def _store_from_device(user: User, upload: UploadFile, space: str, lang: str) -> dict:
     name = os.path.basename(upload.filename or "") or f"file-{int(time.time())}"
-    root = storage.resolve(user, space, "")
-    incoming = disks.NAS_ROOT / ".nas_assistant" / "incoming"
-    incoming.mkdir(parents=True, exist_ok=True)
-    tmp = incoming / secrets.token_hex(8)
+    tmp = _incoming() / secrets.token_hex(8)
     with open(tmp, "wb") as out:
         shutil.copyfileobj(upload.file, out, 4 * 1024 * 1024)
+    return _place(user, tmp, name, space, lang)
+
+
+def _place(user: User, tmp: Path, name: str, space: str, lang: str) -> dict:
+    """Move a received file into the user's space: photos and videos by capture date."""
+    root = storage.resolve(user, space, "")
     try:
         kind = media_kind(name)
         if kind:
@@ -113,6 +166,38 @@ async def device_upload(request: Request, file: UploadFile = File(...), space: s
     "Get contents of URL" sends. Folders are chosen by the server."""
     lang = request.headers.get("Accept-Language", "en")[:2].lower()
     return await run_in_threadpool(_store_from_device, user, file, space, lang)
+
+
+def _device_partial(user: User, name: str) -> Path:
+    """Where a chunked device upload grows: one hidden file per user and name."""
+    name = storage._check_name(os.path.basename(name))
+    folder = _incoming() / user.id
+    folder.mkdir(exist_ok=True)
+    return folder / f".{name}.part"
+
+
+@app.get("/api/device/upload")
+def device_upload_status(name: str, user: User = Depends(uploader)):
+    partial = _device_partial(user, name)
+    return {"offset": partial.stat().st_size if partial.exists() else 0}
+
+
+@app.put("/api/device/upload")
+async def device_upload_chunk(request: Request, name: str, offset: int = 0, final: bool = False,
+                              space: str = "personal", user: User = Depends(uploader)):
+    """Resumable upload for big files (videos), 16 MB pieces, same protocol as /api/upload;
+    the last piece (final=1) places the file like POST /api/device/upload."""
+    partial = _device_partial(user, name)
+    have = partial.stat().st_size if partial.exists() else 0
+    if offset and offset != have:
+        raise HTTPException(409, {"message": "Resuming upload", "offset": have})
+    with open(partial, "ab" if offset else "wb") as out:
+        async for chunk in request.stream():
+            out.write(chunk)
+    if not final:
+        return {"offset": partial.stat().st_size}
+    lang = request.headers.get("Accept-Language", "en")[:2].lower()
+    return await run_in_threadpool(_place, user, partial, os.path.basename(name), space, lang)
 
 
 @app.get("/api/backup")

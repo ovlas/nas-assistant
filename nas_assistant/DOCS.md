@@ -47,12 +47,18 @@ The Backup card on the Home page unlocks:
 Not copied: thumbnails (rebuilt automatically), Recently deleted, uploads still in progress.
 Use two different physical disks: two partitions of the same disk don't protect from a disk failure.
 
-## Uploading from an iPhone in the background
+## Phones: backup in the background
 
-Web pages can't upload in the background on iOS: Safari pauses them as soon as the screen locks.
-NAS Assistant works with an **iOS Shortcut** instead, which keeps going in the background:
+Web pages can't upload in the background on phones: the browser pauses them as soon as the screen locks.
 
-1. On the Home page open **iPhone and devices → Connect an iPhone**. You get an address and a key
+**With the NAS Assistant app (iPhone and Android, coming soon)**: on the Home page open
+**iPhone and devices → Connect a phone** and scan the QR code with the app. The code works once and for
+10 minutes only; the key it is exchanged for goes straight into the phone's secure storage and never appears on
+screen. Each phone can be disconnected from the same card.
+
+**Without the app (iPhone, advanced)**: an **iOS Shortcut** keeps going in the background:
+
+1. On the Home page open **iPhone and devices → iOS Shortcut (advanced)**. You get an address and a key
    for that device (the key only allows uploads into your space; disconnect the device any time).
 2. Build the Shortcut following the steps shown there: *Repeat with Each* → *Get Contents of URL*
    (POST, header `Authorization`, Form body with a File field named `file`).

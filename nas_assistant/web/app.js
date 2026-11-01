@@ -467,10 +467,61 @@ function devicesCard(info) {
     body.append(el("p", "card-sub wrap", t("devicesHow")));
   }
   const add = el("button", "btn primary", t("connectPhone"));
-  add.onclick = connectPhone;
-  body.append(add);
+  add.onclick = pairPhone;
+  const shortcut = el("button", "btn link subtle", t("shortcutAdvanced"));
+  shortcut.onclick = connectPhone;
+  body.append(add, shortcut);
   node.append(body);
   return node;
+}
+
+// Pair the mobile app: a one-time QR code (10 minutes). The key it is exchanged
+// for goes straight to the phone and never appears here.
+let pairTimer;
+
+async function pairPhone() {
+  const dialog = $("device-dialog");
+  let pairing;
+  try {
+    pairing = await post("api/devices/pairing", {});
+  } catch (err) {
+    return alert(err.message);
+  }
+  clearInterval(pairTimer);
+  const qr = el("div", "qr");
+  qr.innerHTML = pairing.qr_svg;  // SVG made by the server from the code
+  const status = el("p", "pair-status");
+  const close = el("button", "btn", t("cancel"));
+  close.onclick = () => dialog.close();
+  const steps = el("ol", "steps");
+  steps.append(el("li", "", t("pairStep1")), el("li", "", t("pairStep2")));
+  dialog.replaceChildren(el("h2", "", t("pairTitle")), qr, steps, status, close);
+  dialog.onclose = () => { clearInterval(pairTimer); render(); };
+  if (!dialog.open) dialog.showModal();
+
+  const tick = async () => {
+    const left = pairing.expires - Math.floor(Date.now() / 1000);
+    if (left <= 0) {
+      clearInterval(pairTimer);
+      qr.classList.add("expired");
+      const again = el("button", "btn primary", t("newCode"));
+      again.onclick = pairPhone;
+      status.replaceChildren(el("span", "", t("pairExpired") + " "), again);
+      return;
+    }
+    status.textContent = t("pairValid", { time: `${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}` });
+    try {
+      const { paired } = await api(`api/devices/paired?${qs({ since: pairing.started })}`);
+      if (paired) {
+        clearInterval(pairTimer);
+        qr.classList.add("done");
+        status.textContent = t("pairDone");
+        close.textContent = t("done");
+      }
+    } catch { /* keep waiting */ }
+  };
+  tick();
+  pairTimer = setInterval(tick, 2000);
 }
 
 async function connectPhone() {
