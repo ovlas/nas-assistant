@@ -7,6 +7,8 @@ Add-ons can only use `mdi:` icon names in `panel_icon`. There are two ways to ge
 
 ## Route A — Material Design Icons (Pictogrammers)
 
+Requested on 2026-11-01: https://github.com/Templarian/MaterialDesign/issues/8029 (`home-harddisk`).
+
 Open an "Icon Request" issue on <https://github.com/Templarian/MaterialDesign/issues/new/choose>
 with the SVG attached. Draft text:
 

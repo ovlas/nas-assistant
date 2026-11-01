@@ -1,5 +1,5 @@
 // All URLs are relative so the UI works behind Ingress (/api/hassio_ingress/<token>/).
-const state = { space: "personal", view: "photos", path: "", kind: "all", user: null, items: [], viewerIndex: -1 };
+const state = { space: "personal", view: "home", path: "", kind: "all", user: null, items: [], viewerIndex: -1 };
 const $ = (id) => document.getElementById(id);
 
 // --- Icons (outline, SF Symbols-like) -----------------------------------------
@@ -25,6 +25,7 @@ const ICON_PATHS = {
   archive: '<rect x="3.5" y="4" width="17" height="5" rx="1.5"/><path d="M5 9v9.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V9M10 13h4"/>',
   more: '<circle cx="5.5" cy="12" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/><circle cx="18.5" cy="12" r="1.3" fill="currentColor"/>',
   rename: '<path d="M14.5 5.5l4 4M4 20l1-4.5L15.8 4.7a1.8 1.8 0 0 1 2.5 0l1 1a1.8 1.8 0 0 1 0 2.5L8.5 19z"/>',
+  home: '<path d="M4 10.5 12 4l8 6.5V19a1.5 1.5 0 0 1-1.5 1.5H15v-6H9v6H5.5A1.5 1.5 0 0 1 4 19z"/>',
   heart: '<path d="M12 20s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.2a4.3 4.3 0 0 1 7.5 2.6C19.5 15.4 12 20 12 20z"/>',
   heartFill: '<path fill="currentColor" d="M12 20s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.2a4.3 4.3 0 0 1 7.5 2.6C19.5 15.4 12 20 12 20z"/>',
   restore: '<path d="M4 12a8 8 0 1 0 2.4-5.7M4 4.5v3.8h3.8"/><path d="M12 8v4.2l2.8 1.8"/>',
@@ -60,8 +61,9 @@ const IMAGE = /\.(jpe?g|png|gif|webp|heic|heif|bmp|tiff?)$/i;
 const VIDEO = /\.(mp4|mov|m4v|webm|mkv|avi|3gp)$/i;
 const kindOf = (name) => (IMAGE.test(name) ? "image" : VIDEO.test(name) ? "video" : null);
 
-const thumbUrl = (path, v, size = "s") => `api/thumb?${qs({ space: state.space, path, size, v })}`;
-const fileUrl = (path, inline = false) => `api/download?${qs({ space: state.space, path, ...(inline ? { inline: 1 } : {}) })}`;
+const thumbUrl = (path, v, size = "s", space = state.space) => `api/thumb?${qs({ space, path, size, v })}`;
+const fileUrl = (path, inline = false, space = state.space) =>
+  `api/download?${qs({ space, path, ...(inline ? { inline: 1 } : {}) })}`;
 
 function el(tag, className, text) {
   const node = document.createElement(tag);
@@ -123,7 +125,11 @@ function render() {
   $("files").innerHTML = "";
   $("crumbs").innerHTML = "";
   $("chips").innerHTML = "";
+  $("home").replaceChildren();
   showEmpty(null);
+  document.body.classList.toggle("on-home", state.view === "home");
+  $("home").hidden = state.view !== "home";
+  if (state.view === "home") return renderHome();
   if (state.view === "trash") return renderTrash();
   return state.view === "photos" ? renderGallery() : renderFiles();
 }
@@ -140,6 +146,11 @@ async function renderGallery() {
     return showEmpty(t("photosLoadError"), err.message);
   }
   renderChips(GALLERY_FILTERS);
+  if (state.openPath) {
+    const index = items.findIndex((i) => i.path === state.openPath);
+    state.openPath = null;
+    if (index >= 0) setTimeout(() => openViewer(index));
+  }
   if (state.kind === "favorite") items = items.filter((i) => i.fav);
   state.items = items;
   const photos = items.filter((i) => i.kind === "image").length;
@@ -358,6 +369,169 @@ function onLongPress(node, callback) {
     cancel();
     if (fired) e.preventDefault();  // no click after a long press
   });
+}
+
+// --- Welcome page (iCloud-style) ------------------------------------------------
+
+const APP_COLORS = {
+  photos: "linear-gradient(135deg, #ffb340, #ff375f 50%, #af52de)",
+  files: "linear-gradient(135deg, #64d2ff, #0a84ff)",
+  family: "linear-gradient(135deg, #30d158, #30b0c7)",
+  favorite: "linear-gradient(135deg, #ff6482, #ff2d55)",
+  trash: "linear-gradient(135deg, #aeaeb2, #636366)",
+};
+
+async function renderHome() {
+  let data, status;
+  try {
+    [data, status] = await Promise.all([api("api/home"), api("api/status")]);
+  } catch (err) {
+    return showEmpty(t("homeLoadError"), err.message);
+  }
+  if (state.view !== "home") return;  // the user moved on while loading
+  $("home").replaceChildren(
+    profileCard(status.usage),
+    photosCard(data.photos),
+    filesCard(data.recent),
+    familyCard(data.family),
+    favoritesCard(data.favorites),
+    trashCard(data.trash),
+  );
+}
+
+function card(className, iconName, color, title, subtitle, open) {
+  const node = el("section", `card ${className}`);
+  const head = el("header", "card-head");
+  const appIcon = el("div", "app-icon");
+  appIcon.style.background = color;
+  appIcon.append(iconEl(iconName));
+  const titles = el("div", "card-titles");
+  titles.append(el("h2", "", title), el("div", "card-sub", subtitle));
+  head.append(appIcon, titles);
+  if (open) {
+    head.classList.add("link");
+    head.onclick = open;
+  }
+  node.append(head);
+  return node;
+}
+
+function profileCard(usage) {
+  const node = el("section", "card profile");
+  const name = (state.user && state.user.display_name) || "";
+  const cloud = el("div", "cloud");
+  cloud.append(el("div", "big-avatar", name.charAt(0).toUpperCase() || "?"));
+  const info = el("div", "profile-info");
+  info.append(el("h1", "", name), el("div", "profile-plan", "NAS Assistant"));
+  if (usage) {
+    const bar = el("div", "bar");
+    const fill = el("div", "bar-fill");
+    fill.style.width = `${(usage.used / usage.total) * 100}%`;
+    bar.append(fill);
+    info.append(bar, el("div", "card-sub", t("diskFree", { free: formatSize(usage.free), total: formatSize(usage.total) })));
+  }
+  node.append(cloud, info);
+  return node;
+}
+
+// Open a photo or video in the gallery viewer, or any other file in a new tab.
+function openFrom(space, entry) {
+  if (entry.is_dir) {
+    return go(space, "files", entry.path);
+  }
+  if (kindOf(entry.name)) {
+    state.openPath = entry.path;
+    return go(space, "photos");
+  }
+  window.open(fileUrl(entry.path, true, space), "_blank");
+}
+
+function photosCard(photos) {
+  const subtitle = [t("library"), t("photoCount", { n: photos.images }),
+    photos.videos ? t("videoCount", { n: photos.videos }) : ""].filter(Boolean).join(" · ");
+  const node = card("photos-card", "photos", APP_COLORS.photos, t("photos"), subtitle, () => go("personal", "photos"));
+  if (!photos.recent.length) {
+    node.append(el("p", "card-empty", t("noPhotosText")));
+    return node;
+  }
+  const grid = el("div", "mosaic");
+  for (const item of photos.recent) {
+    const cell = el("button", "mosaic-cell");
+    const img = el("img");
+    img.loading = "lazy";
+    img.alt = item.name;
+    fadeIn(img);
+    img.src = thumbUrl(item.path, item.v, "s", "personal");
+    cell.append(img);
+    if (item.kind === "video") {
+      const badge = el("span", "badge");
+      badge.append(iconEl("play"));
+      cell.append(badge);
+    }
+    cell.onclick = () => openFrom("personal", item);
+    grid.append(cell);
+  }
+  node.append(grid);
+  return node;
+}
+
+const typeLabel = (entry) => {
+  if (entry.is_dir) return t("folder");
+  const dot = entry.name.lastIndexOf(".");
+  return dot > 0 ? entry.name.slice(dot + 1).toUpperCase() : t(`kind_${entry.kind || "other"}`);
+};
+
+function itemRow(space, entry, detail) {
+  const row = el("button", "home-row");
+  const thumb = el("div", "home-thumb");
+  if (!entry.is_dir && kindOf(entry.name)) {
+    const img = el("img");
+    img.loading = "lazy";
+    img.src = thumbUrl(entry.path, entry.v, "s", space);
+    img.onerror = () => thumb.replaceChildren(iconEl(KIND_ICONS[entry.kind] || "file"));
+    thumb.append(img);
+  } else {
+    thumb.append(iconEl(entry.is_dir ? "folder" : KIND_ICONS[entry.kind] || "file"));
+  }
+  const text = el("div", "home-text");
+  text.append(el("div", "home-name", entry.name), el("div", "card-sub", detail || typeLabel(entry)));
+  row.append(thumb, text);
+  row.onclick = () => openFrom(space, entry);
+  return row;
+}
+
+function listCard(className, iconName, color, title, subtitle, open, space, entries, detail) {
+  const node = card(className, iconName, color, title, subtitle, open);
+  if (!entries.length) {
+    node.append(el("p", "card-empty", t("nothingYet")));
+    return node;
+  }
+  const list = el("div", "home-list");
+  for (const entry of entries) list.append(itemRow(space, entry, detail && detail(entry)));
+  node.append(list);
+  return node;
+}
+
+function filesCard(recent) {
+  return listCard("files-card", "folder", APP_COLORS.files, t("files"), t("recent"),
+    () => go("personal", "files"), "personal", recent);
+}
+
+function familyCard(recent) {
+  return listCard("family-card", "family", APP_COLORS.family, t("family"), t("recentShared"),
+    () => go("family", "photos"), "family", recent,
+    (e) => `${shortFmt.format(e.modified * 1000)} · ${typeLabel(e)}`);
+}
+
+function favoritesCard(favs) {
+  return listCard("fav-card", "heartFill", APP_COLORS.favorite, t("kind_favorite"), t("mySpace"),
+    () => go("personal", "files", "", "favorite"), "personal", favs);
+}
+
+function trashCard(count) {
+  const node = card("trash-card", "trash", APP_COLORS.trash, t("recentlyDeleted"),
+    count ? t("itemCount", { n: count }) : t("trashEmptyTitle"), () => go("personal", "trash"));
+  return node;
 }
 
 // --- Recently deleted ---------------------------------------------------------
@@ -1005,5 +1179,5 @@ api("api/me")
   })
   .catch(() => {})
   .finally(async () => {
-    if (await loadStatus()) go("personal", "photos");
+    if (await loadStatus()) go("personal", "home");
   });

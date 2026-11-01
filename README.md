@@ -8,6 +8,7 @@ A local alternative to iCloud Family Sharing: every Home Assistant user gets a p
 plus a folder shared with the whole family, on a dedicated disk of your choice.
 
 - 🔒 A private space for every HA user, no new accounts
+- 🏠 iCloud-style welcome page: storage, latest photos, recent files, family activity
 - 🖼️ Apple-style photo and video gallery: monthly timeline, full-screen viewer, iPhone HEIC photos
 - 👨‍👩‍👧 Shared Family folder
 - ❤️ Favorites for photos, videos, files and folders

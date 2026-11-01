@@ -12,7 +12,7 @@ from .auth import User, admin_user, current_user
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
-app = FastAPI(title="NAS Assistant", version="0.8.0")
+app = FastAPI(title="NAS Assistant", version="0.9.0")
 
 # Small boards: decode at most two big images at once. Waiting requests queue
 # here, outside the worker threads, so uploads and browsing never stall behind them.
@@ -107,6 +107,24 @@ async def move(request: Request, user: User = Depends(current_user)):
     result = await run_in_threadpool(storage.move, user, space, path, to_space, to_path)
     favorites.moved(user, space, path, to_space, result["path"])
     return result
+
+
+@app.get("/api/home")
+def home(user: User = Depends(current_user)):
+    """Everything the welcome page shows, in one request."""
+    photos = media.gallery(user, "personal")
+    favs = favorites.paths(user, "personal")
+    for item in photos[:8]:
+        item["fav"] = item["path"] in favs
+    images = sum(1 for p in photos if p["kind"] == "image")
+    return {
+        "photos": {"images": images, "videos": len(photos) - images, "recent": photos[:8]},
+        # Photos and videos have their own card.
+        "recent": storage.recent_files(user, "personal", 8, skip_kinds=("image", "video")),
+        "family": storage.recent_files(user, "family", 5),
+        "favorites": favorites.listing(user, "personal")[:6],
+        "trash": storage.trash_count(user),
+    }
 
 
 @app.get("/api/photos")

@@ -11,6 +11,7 @@
   <aside class="sidebar">
     <div class="brand"><img src="logo.svg" alt=""><span>NAS Assistant</span></div>
     <nav id="nav">
+      <button class="nav-item nav-home" data-space="personal" data-view="home"><i data-icon="home"></i><span class="l" data-i18n="home"></span><span class="s" data-i18n="home"></span></button>
       <div class="nav-group" data-i18n="mySpace"></div>
       <button class="nav-item" data-space="personal" data-view="photos"><i data-icon="photos"></i><span class="l" data-i18n="photos"></span><span class="s" data-i18n="photos"></span></button>
       <button class="nav-item" data-space="personal" data-view="files"><i data-icon="folder"></i><span class="l" data-i18n="files"></span><span class="s" data-i18n="files"></span></button>
@@ -43,6 +44,7 @@
     <nav class="chips" id="chips"></nav>
     <nav class="crumbs" id="crumbs"></nav>
 
+    <section id="home" class="home" hidden></section>
     <section id="gallery" class="gallery"></section>
     <section id="files" class="file-list"></section>
     <div class="empty" id="empty" hidden>

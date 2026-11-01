@@ -98,6 +98,7 @@ App options: "Wi-Fi only", "only while charging", "only at home".
 - [x] Photo/video thumbnails (Pillow + HEIC, ffmpeg) and timeline gallery
 - [x] Resumable chunked uploads
 - [x] Catalogue by file type, rename, move (also between My space and Family)
+- [x] iCloud-style welcome page
 - [x] Favorites for files, folders, photos and videos
 - [x] Recently deleted with restore, delete forever and undo; inline rename
 - [x] Multilingual UI (English, Italiano, Español, Français, Deutsch)

@@ -33,6 +33,8 @@ If it is missing, NAS Assistant writes nothing to the main disk.
 
 ## Using it
 
+- **Home**: an iCloud-style welcome page with your storage, latest photos, recent files, what the family
+  shared lately, your favorites and Recently deleted. Tap any card to open it.
 - **Photos**: a timeline by month. Uploads from the gallery go to `Photos/<year>/<month>`.
 - **Files**: folders and files of your private space.
 - **Family photos / Shared files**: the same, shared with every Home Assistant user.

@@ -8,6 +8,7 @@ Layout under NAS_ROOT:
         <id>/.nas_trash.json  where it came from and when it was deleted
 """
 
+import heapq
 import json
 import os
 import re
@@ -86,6 +87,37 @@ def list_dir(user: User, space: str, rel_path: str) -> List[dict]:
         })
     entries.sort(key=lambda e: (not e["is_dir"], e["name"].lower()))
     return entries
+
+
+def recent_files(user: User, space: str, limit: int, skip_kinds=()) -> List[dict]:
+    """The most recently changed files of a space, newest first."""
+    root = resolve(user, space, "")
+    found = []
+    for folder, dirs, files in os.walk(root):
+        dirs[:] = [d for d in dirs if not d.startswith(".")]
+        for name in files:
+            kind = kind_of(name)
+            if name.startswith(".") or kind in skip_kinds:
+                continue
+            full = Path(folder) / name
+            stat = full.stat()
+            found.append((stat.st_mtime_ns, full, stat, kind))
+    entries = []
+    for _, full, stat, kind in heapq.nlargest(limit, found, key=lambda f: f[0]):
+        entries.append({
+            "name": full.name,
+            "path": str(full.relative_to(root)),
+            "is_dir": False,
+            "size": stat.st_size,
+            "modified": int(stat.st_mtime),
+            "v": stat.st_mtime_ns,
+            "kind": kind,
+        })
+    return entries
+
+
+def trash_count(user: User) -> int:
+    return sum(1 for slot in _trash_root(user).iterdir() if not slot.name.startswith("."))
 
 
 def files_by_kind(user: User, space: str, kind: str) -> List[dict]:
