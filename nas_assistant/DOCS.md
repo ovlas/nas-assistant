@@ -24,7 +24,7 @@ If that disk is unplugged, the add-on will not start until you plug it back in.
 
 **Alternative — protection mode off**
 
-Turn off **Protection mode**, restart the add-on and open **NAS** from the sidebar (as an administrator).
+Turn off **Protection mode**, restart the add-on and open **NAS Assistant** from the sidebar (as an administrator).
 Your disks are listed (never the Home Assistant system disk): pick a partition and press **Use as is**.
 Only if you want a blank disk, use **Erase everything and format** and type the confirmation word.
 
