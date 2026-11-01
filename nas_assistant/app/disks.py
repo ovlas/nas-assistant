@@ -108,6 +108,9 @@ def list_disks(devices: Optional[List[dict]] = None) -> List[dict]:
             "size": int(dev.get("size") or 0),
             "transport": (dev.get("tran") or "").upper(),
             "removable": bool(dev.get("rm")),
+            # False when HA keeps the add-on in protection mode: sysfs lists the
+            # disk but its /dev node is not passed into the container.
+            "accessible": os.path.exists(dev["path"]),
             "partitions": parts,
         })
     return disks

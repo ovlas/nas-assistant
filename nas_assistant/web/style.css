@@ -65,6 +65,8 @@ main.dragging .drop-hint { display: grid; }
 .part-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px;
             padding-top: 10px; border-top: 1px solid var(--line); font-size: 13px; flex-wrap: wrap; }
 .disk-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+.notice { background: #fff4d6; color: #7a5200; border-radius: 10px; padding: 12px 14px; margin: 0; font-size: 14px; }
+@media (prefers-color-scheme: dark) { .notice { background: #3a2e0a; color: #ffd66b; } }
 .btn.danger { background: #ff3b30; border-color: #ff3b30; color: #fff; }
 .btn.link { border: 0; background: none; color: #ff3b30; padding-left: 0; }
 .btn:disabled { opacity: .5; cursor: default; }

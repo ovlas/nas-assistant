@@ -176,6 +176,11 @@ async function loadDisks() {
   try {
     const { disks } = await api("api/disks");
     list.innerHTML = "";
+    if (disks.some((d) => !d.accessible)) {
+      list.append(el("p", "notice",
+        "Home Assistant non dà ancora accesso ai dischi a NAS Assistant. Nella pagina dell'add-on disattiva " +
+        "\"Modalità protetta\", riavvia l'add-on e torna qui."));
+    }
     if (!disks.length) list.innerHTML = '<p class="lead">Nessun disco trovato. Collegane uno e premi "Aggiorna elenco".</p>';
     for (const disk of disks) list.append(diskCard(disk));
   } catch (err) {
@@ -195,6 +200,12 @@ function diskCard(disk) {
   const info = el("div", "disk-info");
   const kind = [disk.transport, disk.removable ? "rimovibile" : ""].filter(Boolean).join(" · ");
   info.append(el("div", "disk-title", disk.model), el("div", "disk-sub", [formatSize(disk.size), kind, disk.path].filter(Boolean).join(" · ")));
+
+  if (!disk.accessible) {
+    info.append(el("div", "disk-sub", "Disco non accessibile finché la modalità protetta è attiva"));
+    card.append(el("div", "disk-icon", disk.transport === "USB" ? "🔌" : "💽"), info);
+    return card;
+  }
 
   for (const part of disk.partitions) {
     const row = el("div", "part-row");
