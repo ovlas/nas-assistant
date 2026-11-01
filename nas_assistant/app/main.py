@@ -4,7 +4,7 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import disks, media, storage
@@ -12,7 +12,7 @@ from .auth import User, admin_user, current_user
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
-app = FastAPI(title="NAS Assistant", version="0.7.1")
+app = FastAPI(title="NAS Assistant", version="0.7.2")
 
 # Small boards: decode at most two big images at once. Waiting requests queue
 # here, outside the worker threads, so uploads and browsing never stall behind them.
@@ -196,13 +196,24 @@ async def delete(space: str, path: str, user: User = Depends(current_user)):
     return {"id": storage.move_to_trash(user, space, path)}
 
 
-class WebFiles(StaticFiles):
-    """The web UI. Browsers must check for a new version on every load (a cheap
-    304 when nothing changed), otherwise they keep showing the old UI after an update."""
+# The web UI must never be kept by proxies such as Cloudflare (which otherwise
+# caches .js/.css for hours) and browsers must check for a new version on every
+# load. On top of that, index.html links the files with ?v=<version>, so an
+# update always means new URLs.
+UI_CACHE = "private, no-cache"
+INDEX_HTML = (WEB_DIR / "index.html").read_text().replace("{{version}}", app.version)
 
+
+@app.get("/", include_in_schema=False)
+@app.get("/index.html", include_in_schema=False)
+async def index():
+    return HTMLResponse(INDEX_HTML, headers={"Cache-Control": UI_CACHE})
+
+
+class WebFiles(StaticFiles):
     def file_response(self, *args, **kwargs):
         response = super().file_response(*args, **kwargs)
-        response.headers["Cache-Control"] = "no-cache"
+        response.headers["Cache-Control"] = UI_CACHE
         return response
 
 
