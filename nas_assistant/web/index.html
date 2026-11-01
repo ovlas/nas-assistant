@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NAS Assistant</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand"><span class="logo">◆</span> NAS Assistant</div>
+    <nav>
+      <button class="nav-item active" data-space="personal">🔒 Il mio spazio</button>
+      <button class="nav-item" data-space="family">👨‍👩‍👧 Famiglia</button>
+    </nav>
+    <div class="disk">
+      <div class="disk-label" id="disk-label">Disco…</div>
+      <div class="bar"><div class="bar-fill" id="disk-bar"></div></div>
+    </div>
+    <div class="user" id="user"></div>
+  </aside>
+
+  <main id="drop">
+    <header class="toolbar">
+      <div class="crumbs" id="crumbs"></div>
+      <div class="actions">
+        <button class="btn" id="new-folder">Nuova cartella</button>
+        <label class="btn primary">Carica<input type="file" id="file-input" multiple hidden></label>
+      </div>
+    </header>
+    <div id="progress" class="progress" hidden></div>
+    <section class="grid" id="grid"></section>
+    <p class="empty" id="empty" hidden>Trascina qui foto e file per caricarli</p>
+    <div class="drop-hint">Rilascia per caricare</div>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>

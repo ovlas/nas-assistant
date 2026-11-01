@@ -1,0 +1,11 @@
+configuration:
+  disk:
+    name: Disco NAS
+    description: UUID o etichetta del disco dedicato al NAS (es. NAS o 1234-ABCD). Lascia vuoto e sceglilo dall'interfaccia.
+  family_folder_name:
+    name: Nome cartella condivisa
+    description: Nome della cartella visibile a tutta la famiglia.
+  log_level:
+    name: Livello log
+network:
+  8456/tcp: API per le app mobili
