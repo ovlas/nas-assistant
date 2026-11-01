@@ -1,27 +1,23 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <defs>
-    <linearGradient id="house" x1="0" y1="0" x2="0" y2="512" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#7FD1F7"/>
-      <stop offset="1" stop-color="#4BA8EC"/>
-    </linearGradient>
-  </defs>
-  <!-- house: a thick round stroke gives the soft, chunky corners -->
-  <path d="M256 76 L436 232 L436 436 L76 436 L76 232 Z"
-        fill="url(#house)" stroke="url(#house)" stroke-width="104" stroke-linejoin="round"/>
-  <!-- hard disk (white, portrait) -->
-  <rect x="150" y="186" width="212" height="270" rx="40" fill="#fff"/>
-  <!-- screws -->
-  <circle cx="180" cy="216" r="9" fill="url(#house)"/>
-  <circle cx="332" cy="216" r="9" fill="url(#house)"/>
-  <circle cx="180" cy="426" r="9" fill="url(#house)"/>
-  <circle cx="332" cy="426" r="9" fill="url(#house)"/>
-  <!-- platter with a data track -->
-  <circle cx="256" cy="294" r="76" fill="url(#house)"/>
-  <circle cx="256" cy="294" r="48" fill="none" stroke="#fff" stroke-opacity=".5" stroke-width="5"/>
-  <circle cx="256" cy="294" r="15" fill="#fff"/>
-  <!-- read head arm from the bottom-right pivot -->
-  <path d="M298 404 L268 322" stroke="url(#house)" stroke-width="30" stroke-linecap="round"/>
-  <path d="M298 404 L268 322" stroke="#fff" stroke-width="11" stroke-linecap="round"/>
-  <circle cx="298" cy="404" r="20" fill="url(#house)"/>
-  <circle cx="298" cy="404" r="8" fill="#fff"/>
+  <!-- Same house as the Music Assistant icon (color #58B9ED, 45° roof, proportions),
+       with a white hard disk inside instead of the "MA" letters. -->
+  <g transform="translate(256 256) scale(1.085) translate(-256 -270)">
+    <path d="M256 66 L466 276 L466 474 L46 474 L46 276 Z"
+          fill="#58B9ED" stroke="#58B9ED" stroke-width="44" stroke-linejoin="round"/>
+    <!-- hard disk (white, portrait) -->
+    <rect x="148" y="232" width="216" height="236" rx="34" fill="#fff"/>
+    <!-- screws -->
+    <circle cx="177" cy="261" r="9" fill="#58B9ED"/>
+    <circle cx="335" cy="261" r="9" fill="#58B9ED"/>
+    <circle cx="177" cy="439" r="9" fill="#58B9ED"/>
+    <!-- platter with a data track -->
+    <circle cx="256" cy="333" r="72" fill="#58B9ED"/>
+    <circle cx="256" cy="333" r="45" fill="none" stroke="#fff" stroke-opacity=".5" stroke-width="6"/>
+    <circle cx="256" cy="333" r="14" fill="#fff"/>
+    <!-- read head arm from the bottom-right pivot -->
+    <path d="M306 434 L271 360" stroke="#58B9ED" stroke-width="30" stroke-linecap="round"/>
+    <path d="M306 434 L271 360" stroke="#fff" stroke-width="11" stroke-linecap="round"/>
+    <circle cx="306" cy="434" r="20" fill="#58B9ED"/>
+    <circle cx="306" cy="434" r="8" fill="#fff"/>
+  </g>
 </svg>
