@@ -1,10 +1,13 @@
-# NAS Assistant
+<p align="center"><img src="nas_assistant/web/logo.svg" width="120" alt="NAS Assistant"></p>
+
+<h1 align="center">NAS Assistant</h1>
 
 Il cloud di famiglia, a casa tua, dentro Home Assistant.
 Un'alternativa locale a iCloud Famiglia: ogni utente di Home Assistant ha il suo spazio privato,
 più una cartella condivisa con tutta la famiglia, su un disco dedicato scelto da te.
 
 - 🔒 Spazio privato per ogni utente HA, senza nuovi account
+- 🖼️ Galleria foto e video in stile Apple: timeline per mese, visore a schermo intero, foto HEIC dell'iPhone
 - 👨‍👩‍👧 Cartella Famiglia condivisa
 - 💽 Disco dedicato (la capienza la scegli tu): i backup di HA restano sul disco principale
 - 📱 App iOS e Android (in arrivo) con backup automatico delle foto

@@ -2,55 +2,92 @@
 <html lang="it">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>NAS Assistant</title>
+  <link rel="icon" href="logo.svg" type="image/svg+xml">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <aside class="sidebar">
-    <div class="brand"><span class="logo">◆</span> NAS Assistant</div>
-    <nav>
-      <button class="nav-item active" data-space="personal">🔒 Il mio spazio</button>
-      <button class="nav-item" data-space="family">👨‍👩‍👧 Famiglia</button>
+    <div class="brand"><img src="logo.svg" alt=""><span>NAS Assistant</span></div>
+    <nav id="nav">
+      <div class="nav-group">Il mio spazio</div>
+      <button class="nav-item" data-space="personal" data-view="photos"><i data-icon="photos"></i><span class="l">Foto</span><span class="s">Foto</span></button>
+      <button class="nav-item" data-space="personal" data-view="files"><i data-icon="folder"></i><span class="l">File</span><span class="s">File</span></button>
+      <div class="nav-group">Famiglia</div>
+      <button class="nav-item" data-space="family" data-view="photos"><i data-icon="family"></i><span class="l">Foto di famiglia</span><span class="s">Famiglia</span></button>
+      <button class="nav-item" data-space="family" data-view="files"><i data-icon="share"></i><span class="l">File condivisi</span><span class="s">Condivisi</span></button>
     </nav>
-    <div class="disk">
-      <div class="disk-label" id="disk-label">Disco…</div>
-      <div class="bar"><div class="bar-fill" id="disk-bar"></div></div>
+    <div class="side-footer">
+      <div class="disk-card">
+        <div class="disk-row"><i data-icon="disk"></i><span id="disk-label">Disco…</span></div>
+        <div class="bar"><div class="bar-fill" id="disk-bar"></div></div>
+      </div>
+      <div class="user" id="user"></div>
     </div>
-    <div class="user" id="user"></div>
   </aside>
 
-  <main id="drop">
-    <header class="toolbar">
-      <div class="crumbs" id="crumbs"></div>
-      <div class="actions">
-        <button class="btn" id="new-folder">Nuova cartella</button>
-        <label class="btn primary">Carica<input type="file" id="file-input" multiple hidden></label>
+  <main id="main">
+    <header class="topbar" id="topbar">
+      <div class="titles">
+        <h1 id="title">Foto</h1>
+        <div class="subtitle" id="subtitle"></div>
+      </div>
+      <div class="actions" id="actions">
+        <button class="btn" id="new-folder"><i data-icon="plus"></i><span>Nuova cartella</span></button>
+        <label class="btn primary"><i data-icon="upload"></i><span>Carica</span><input type="file" id="file-input" multiple hidden></label>
       </div>
     </header>
+    <nav class="crumbs" id="crumbs"></nav>
+
+    <section id="gallery" class="gallery"></section>
+    <section id="files" class="file-list"></section>
+    <div class="empty" id="empty" hidden>
+      <img src="logo.svg" alt="">
+      <h2 id="empty-title"></h2>
+      <p id="empty-text"></p>
+    </div>
+
     <section class="setup" id="setup" hidden>
+      <img class="setup-logo" src="logo.svg" alt="">
       <h1>Scegli il disco del NAS</h1>
       <p class="lead" id="setup-lead">Collega un disco USB o SATA: qui vedi quelli disponibili. Il disco di Home Assistant non compare mai.</p>
       <div class="disk-list" id="disk-list"></div>
       <button class="btn" id="disk-refresh">Aggiorna elenco</button>
     </section>
-    <dialog id="format-dialog">
-      <form method="dialog">
-        <h2>Formattare il disco?</h2>
-        <p>Tutti i dati su <strong id="format-name"></strong> verranno <strong>cancellati per sempre</strong>.</p>
-        <p>Per confermare scrivi <code>FORMATTA</code></p>
-        <input id="format-confirm" autocomplete="off">
-        <div class="dialog-actions">
-          <button class="btn" value="cancel">Annulla</button>
-          <button class="btn danger" id="format-go" value="ok">Formatta e usa</button>
-        </div>
-      </form>
-    </dialog>
-    <div id="progress" class="progress" hidden></div>
-    <section class="grid" id="grid"></section>
-    <p class="empty" id="empty" hidden>Trascina qui foto e file per caricarli</p>
-    <div class="drop-hint">Rilascia per caricare</div>
+
+    <div class="drop-hint"><i data-icon="upload"></i>Rilascia per caricare</div>
   </main>
+
+  <div class="viewer" id="viewer" hidden>
+    <div class="viewer-bar">
+      <button class="icon-btn" id="v-close" title="Chiudi"><i data-icon="close"></i></button>
+      <div class="viewer-info"><div id="v-date"></div><div class="viewer-name" id="v-name"></div></div>
+      <a class="icon-btn" id="v-download" title="Scarica originale"><i data-icon="download"></i></a>
+      <button class="icon-btn" id="v-delete" title="Sposta nel cestino"><i data-icon="trash"></i></button>
+    </div>
+    <div class="viewer-stage" id="v-stage"></div>
+    <button class="nav-arrow left" id="v-prev" title="Precedente"><i data-icon="left"></i></button>
+    <button class="nav-arrow right" id="v-next" title="Successiva"><i data-icon="right"></i></button>
+  </div>
+
+  <div class="toast" id="toast" hidden>
+    <div class="toast-text" id="toast-text"></div>
+    <div class="bar"><div class="bar-fill" id="toast-bar"></div></div>
+  </div>
+
+  <dialog id="format-dialog">
+    <form method="dialog">
+      <h2>Formattare il disco?</h2>
+      <p>Tutti i dati su <strong id="format-name"></strong> verranno <strong>cancellati per sempre</strong>.</p>
+      <p>Per confermare scrivi <code>FORMATTA</code></p>
+      <input id="format-confirm" autocomplete="off">
+      <div class="dialog-actions">
+        <button class="btn" value="cancel">Annulla</button>
+        <button class="btn danger" value="ok">Formatta e usa</button>
+      </div>
+    </form>
+  </dialog>
   <script src="app.js"></script>
 </body>
 </html>

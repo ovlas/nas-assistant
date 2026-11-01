@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="house" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2CC6F7"/>
+      <stop offset="1" stop-color="#0B8FD9"/>
+    </linearGradient>
+  </defs>
+  <!-- house -->
+  <path d="M256 52 L460 228 L460 444 Q460 468 436 468 L76 468 Q52 468 52 444 L52 228 Z"
+        fill="url(#house)" stroke="url(#house)" stroke-width="36" stroke-linejoin="round"/>
+  <!-- hard disk (white, portrait) -->
+  <rect x="166" y="190" width="180" height="248" rx="26" fill="#fff"/>
+  <!-- screws -->
+  <circle cx="188" cy="212" r="7" fill="url(#house)"/>
+  <circle cx="324" cy="212" r="7" fill="url(#house)"/>
+  <circle cx="188" cy="416" r="7" fill="url(#house)"/>
+  <circle cx="324" cy="416" r="7" fill="url(#house)"/>
+  <!-- platter with a data track -->
+  <circle cx="256" cy="290" r="66" fill="url(#house)"/>
+  <circle cx="256" cy="290" r="42" fill="none" stroke="#fff" stroke-opacity=".45" stroke-width="4"/>
+  <circle cx="256" cy="290" r="13" fill="#fff"/>
+  <!-- read head arm from the bottom-right pivot -->
+  <path d="M294 392 L266 316" stroke="url(#house)" stroke-width="26" stroke-linecap="round"/>
+  <path d="M294 392 L266 316" stroke="#fff" stroke-width="10" stroke-linecap="round"/>
+  <circle cx="294" cy="392" r="18" fill="url(#house)"/>
+  <circle cx="294" cy="392" r="7" fill="#fff"/>
+</svg>

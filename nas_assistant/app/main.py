@@ -5,12 +5,12 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import disks, storage
+from . import disks, media, storage
 from .auth import User, admin_user, current_user
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
-app = FastAPI(title="NAS Assistant", version="0.2.5")
+app = FastAPI(title="NAS Assistant", version="0.3.0")
 
 
 @app.get("/api/me")
@@ -60,6 +60,19 @@ async def list_files(space: str = "personal", path: str = "", user: User = Depen
     return {"space": space, "path": path, "entries": storage.list_dir(user, space, path)}
 
 
+@app.get("/api/photos")
+def photos(space: str = "personal", user: User = Depends(current_user)):
+    return {"space": space, "items": media.gallery(user, space)}
+
+
+@app.get("/api/thumb")
+def thumb(space: str, path: str, size: str = "s", user: User = Depends(current_user)):
+    # The URL carries the file version (?v=mtime), so the browser may cache it forever.
+    out = media.thumbnail(storage.resolve(user, space, path), size)
+    return FileResponse(out, media_type="image/webp",
+                        headers={"Cache-Control": "private, max-age=31536000, immutable"})
+
+
 @app.post("/api/folders")
 async def create_folder(
     space: str = Form(...), path: str = Form(""), name: str = Form(...),
@@ -79,11 +92,13 @@ def upload(
 
 
 @app.get("/api/download")
-async def download(space: str, path: str, user: User = Depends(current_user)):
+async def download(space: str, path: str, inline: bool = False, user: User = Depends(current_user)):
     target = storage.resolve(user, space, path)
     if not target.is_file():
         raise HTTPException(404, "File non trovato")
-    return FileResponse(target, filename=target.name)
+    # Supports HTTP Range requests, which Safari/iOS need to play videos.
+    return FileResponse(target, filename=target.name,
+                        content_disposition_type="inline" if inline else "attachment")
 
 
 @app.delete("/api/files")

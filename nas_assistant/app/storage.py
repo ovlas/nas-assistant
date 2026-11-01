@@ -74,6 +74,7 @@ def list_dir(user: User, space: str, rel_path: str) -> List[dict]:
             "is_dir": entry.is_dir(),
             "size": 0 if entry.is_dir() else stat.st_size,
             "modified": int(stat.st_mtime),
+            "v": stat.st_mtime_ns,
         })
     entries.sort(key=lambda e: (not e["is_dir"], e["name"].lower()))
     return entries
@@ -88,8 +89,7 @@ def make_dir(user: User, space: str, rel_path: str, name: str) -> None:
 
 def save_file(user: User, space: str, rel_path: str, name: str, data: BinaryIO) -> dict:
     folder = resolve(user, space, rel_path)
-    if not folder.is_dir():
-        raise HTTPException(404, "Cartella non trovata")
+    folder.mkdir(parents=True, exist_ok=True)  # e.g. Foto/2026/11 for gallery uploads
     target = folder / _check_name(name)
     # Write to a hidden temp file first so a dropped upload never leaves a broken file.
     partial = folder / f".{target.name}.part"

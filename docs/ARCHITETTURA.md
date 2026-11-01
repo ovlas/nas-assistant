@@ -81,7 +81,7 @@ l'upload riparte da dove si era fermato. Opzioni nell'app: "solo Wi-Fi", "solo i
 - [x] Spazio personale e cartella Famiglia
 - [x] Elenco file, cartelle, caricamento, download, cestino
 - [x] Montaggio disco dedicato + procedura guidata (usa così com'è o formatta in ext4)
-- [ ] Miniature foto/video (libvips, ffmpeg)
+- [x] Miniature foto/video (Pillow + HEIC, ffmpeg) e galleria con timeline
 - [ ] Quote per utente
 - [ ] Sensori in HA
 

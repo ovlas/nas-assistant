@@ -1,8 +1,36 @@
 // All URLs are relative so the UI works behind Ingress (/api/hassio_ingress/<token>/).
-const state = { space: "personal", path: "", user: null };
+const state = { space: "personal", view: "photos", path: "", user: null, items: [], viewerIndex: -1 };
 const $ = (id) => document.getElementById(id);
-const IMAGE = /\.(jpe?g|png|gif|webp|heic|avif)$/i;
-const VIDEO = /\.(mp4|mov|m4v|webm)$/i;
+
+// --- Icons (outline, SF Symbols-like) -----------------------------------------
+
+const ICON_PATHS = {
+  photos: '<rect x="3" y="5" width="18" height="14" rx="3"/><circle cx="15.5" cy="9.5" r="1.6"/><path d="M3.5 17l5-5.5 4 4 2.5-2.5 5.5 5"/>',
+  folder: '<path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H9l2 2.2h7.5A2.5 2.5 0 0 1 21 9.7v7.8a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5z"/>',
+  family: '<circle cx="9" cy="8" r="3"/><circle cx="17" cy="9.5" r="2.3"/><path d="M3.5 19c.6-3.2 2.8-5 5.5-5s4.9 1.8 5.5 5M14.5 14.6c.7-.4 1.6-.6 2.5-.6 2.3 0 3.9 1.5 4.4 4"/>',
+  share: '<path d="M8 12h-1.5A2.5 2.5 0 0 0 4 14.5v3A2.5 2.5 0 0 0 6.5 20h11a2.5 2.5 0 0 0 2.5-2.5v-3a2.5 2.5 0 0 0-2.5-2.5H16M12 15V3.5M8.5 7 12 3.5 15.5 7"/>',
+  disk: '<rect x="5" y="3" width="14" height="18" rx="3"/><circle cx="12" cy="10" r="3.5"/><path d="M14.5 17.5 12.8 13"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  upload: '<path d="M12 16V4M7.5 8.5 12 4l4.5 4.5M4.5 15v2.5A2.5 2.5 0 0 0 7 20h10a2.5 2.5 0 0 0 2.5-2.5V15"/>',
+  download: '<path d="M12 4v12M7.5 11.5 12 16l4.5-4.5M4.5 15v2.5A2.5 2.5 0 0 0 7 20h10a2.5 2.5 0 0 0 2.5-2.5V15"/>',
+  trash: '<path d="M4.5 6.5h15M9.5 6.5V4.8c0-.7.5-1.3 1.2-1.3h2.6c.7 0 1.2.6 1.2 1.3v1.7M6.5 6.5l.8 12.2c.1 1 .9 1.8 1.9 1.8h5.6c1 0 1.8-.8 1.9-1.8l.8-12.2"/>',
+  close: '<path d="M6 6l12 12M18 6 6 18"/>',
+  left: '<path d="M15 5l-7 7 7 7"/>',
+  right: '<path d="M9 5l7 7-7 7"/>',
+  play: '<path d="M8 5.5v13l10.5-6.5z" fill="currentColor"/>',
+  file: '<path d="M7 3h6.5L19 8.5V19a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M13 3v6h6"/>',
+  video: '<rect x="3" y="6" width="13" height="12" rx="2.5"/><path d="M16 10.5l5-3v9l-5-3"/>',
+};
+
+function icon(name) {
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${ICON_PATHS[name] || ""}</svg>`;
+}
+
+function paintIcons(root = document) {
+  root.querySelectorAll("i[data-icon]").forEach((i) => { if (!i.innerHTML) i.innerHTML = icon(i.dataset.icon); });
+}
+
+// --- Helpers ------------------------------------------------------------------
 
 async function api(url, opts) {
   const res = await fetch(url, opts);
@@ -12,6 +40,26 @@ async function api(url, opts) {
 
 const qs = (params) => new URLSearchParams(params).toString();
 const join = (...parts) => parts.filter(Boolean).join("/");
+const IMAGE = /\.(jpe?g|png|gif|webp|heic|heif|bmp|tiff?)$/i;
+const VIDEO = /\.(mp4|mov|m4v|webm|mkv|avi|3gp)$/i;
+const kindOf = (name) => (IMAGE.test(name) ? "image" : VIDEO.test(name) ? "video" : null);
+
+const thumbUrl = (path, v, size = "s") => `api/thumb?${qs({ space: state.space, path, size, v })}`;
+const fileUrl = (path, inline = false) => `api/download?${qs({ space: state.space, path, ...(inline ? { inline: 1 } : {}) })}`;
+
+function el(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+function iconEl(name) {
+  const i = el("i");
+  i.dataset.icon = name;
+  i.innerHTML = icon(name);
+  return i;
+}
 
 function formatSize(bytes) {
   const units = ["B", "KB", "MB", "GB", "TB"];
@@ -20,116 +68,326 @@ function formatSize(bytes) {
   return `${bytes.toFixed(i ? 1 : 0)} ${units[i]}`;
 }
 
-function icon(entry) {
-  if (entry.is_dir) return "📁";
-  if (VIDEO.test(entry.name)) return "🎬";
-  if (/\.pdf$/i.test(entry.name)) return "📄";
-  return "📎";
+const capitalize = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+const monthFmt = new Intl.DateTimeFormat("it-IT", { month: "long", year: "numeric" });
+const dayFmt = new Intl.DateTimeFormat("it-IT", { day: "numeric", month: "long", year: "numeric" });
+const timeFmt = new Intl.DateTimeFormat("it-IT", { hour: "2-digit", minute: "2-digit" });
+const shortFmt = new Intl.DateTimeFormat("it-IT", { day: "numeric", month: "short", year: "numeric" });
+
+function fadeIn(img) {
+  img.onload = () => img.classList.add("loaded");
+  img.onerror = () => img.classList.add("loaded");
 }
 
-function renderCrumbs() {
-  const root = state.space === "personal" ? "Il mio spazio" : "Famiglia";
-  const parts = state.path ? state.path.split("/") : [];
-  const crumbs = $("crumbs");
-  crumbs.innerHTML = "";
-  [root, ...parts].forEach((label, i) => {
-    if (i) crumbs.append(" › ");
-    const a = document.createElement("a");
-    a.textContent = label;
-    a.onclick = () => open(parts.slice(0, i).join("/"));
-    crumbs.append(a);
+// --- Navigation ---------------------------------------------------------------
+
+function go(space, view, path = "") {
+  Object.assign(state, { space, view, path });
+  document.querySelectorAll(".nav-item").forEach((b) =>
+    b.classList.toggle("active", b.dataset.space === space && b.dataset.view === view));
+  render();
+}
+
+function setHeader(title, subtitle) {
+  $("title").textContent = title;
+  $("subtitle").textContent = subtitle;
+  $("new-folder").hidden = state.view !== "files";
+}
+
+function showEmpty(title, text) {
+  $("empty").hidden = !title;
+  if (title) { $("empty-title").textContent = title; $("empty-text").textContent = text; }
+}
+
+function render() {
+  $("gallery").innerHTML = "";
+  $("files").innerHTML = "";
+  $("crumbs").innerHTML = "";
+  showEmpty(null);
+  return state.view === "photos" ? renderGallery() : renderFiles();
+}
+
+// --- Gallery ------------------------------------------------------------------
+
+async function renderGallery() {
+  const where = state.space === "personal" ? "Il mio spazio" : "Famiglia";
+  setHeader(state.space === "personal" ? "Foto" : "Foto di famiglia", where);
+  let items;
+  try {
+    ({ items } = await api(`api/photos?${qs({ space: state.space })}`));
+  } catch (err) {
+    return showEmpty("Impossibile caricare le foto", err.message);
+  }
+  state.items = items;
+  const photos = items.filter((i) => i.kind === "image").length;
+  const videos = items.length - photos;
+  setHeader($("title").textContent,
+    [where, `${photos} foto`, videos ? `${videos} video` : ""].filter(Boolean).join(" · "));
+  if (!items.length) {
+    return showEmpty("Ancora nessuna foto", "Trascina qui foto e video, oppure premi Carica.");
+  }
+
+  const gallery = $("gallery");
+  let section, tiles, currentMonth;
+  items.forEach((item, index) => {
+    const month = capitalize(monthFmt.format(item.taken * 1000));
+    if (month !== currentMonth) {
+      currentMonth = month;
+      section = el("section", "month");
+      const h2 = el("h2", "", month);
+      h2.append(el("span"));
+      tiles = el("div", "tiles");
+      section.append(h2, tiles);
+      gallery.append(section);
+    }
+    section.querySelector("h2 span").textContent = `${tiles.children.length + 1}`;
+    tiles.append(tile(item, index));
   });
 }
 
-async function load() {
-  renderCrumbs();
-  const grid = $("grid");
-  try {
-    const { entries } = await api(`api/files?${qs({ space: state.space, path: state.path })}`);
-    grid.innerHTML = "";
-    $("empty").hidden = entries.length > 0;
-    for (const entry of entries) grid.append(card(entry));
-  } catch (err) {
-    grid.innerHTML = `<p class="empty">${err.message}</p>`;
+function tile(item, index) {
+  const node = el("div", "tile");
+  const img = el("img");
+  img.loading = "lazy";
+  img.alt = item.name;
+  fadeIn(img);
+  img.src = thumbUrl(item.path, item.v);
+  node.append(img);
+  if (item.kind === "video") {
+    const badge = el("span", "badge");
+    badge.append(iconEl("play"));
+    node.append(badge);
   }
+  node.onclick = () => openViewer(index);
+  return node;
 }
 
-function card(entry) {
+// --- Files --------------------------------------------------------------------
+
+async function renderFiles() {
+  const root = state.space === "personal" ? "File" : "File condivisi";
+  setHeader(root, state.space === "personal" ? "Il mio spazio" : "Famiglia");
+  renderCrumbs(root);
+  let entries;
+  try {
+    ({ entries } = await api(`api/files?${qs({ space: state.space, path: state.path })}`));
+  } catch (err) {
+    return showEmpty("Impossibile aprire la cartella", err.message);
+  }
+  // The viewer browses the photos and videos of this folder.
+  state.items = entries.filter((e) => !e.is_dir && kindOf(e.name))
+    .map((e) => ({ path: join(state.path, e.name), name: e.name, kind: kindOf(e.name), taken: e.modified, v: e.v }));
+  if (!entries.length) {
+    return showEmpty("Cartella vuota", "Trascina qui i file, oppure premi Carica.");
+  }
+  const list = $("files");
+  for (const entry of entries) list.append(fileRow(entry));
+}
+
+function renderCrumbs(root) {
+  if (!state.path) return;
+  const parts = state.path.split("/");
+  const crumbs = $("crumbs");
+  [root, ...parts].forEach((label, i) => {
+    if (i) crumbs.append(iconEl("right"));
+    const a = el("a", "", label);
+    a.onclick = () => go(state.space, "files", parts.slice(0, i).join("/"));
+    crumbs.append(a);
+  });
+  crumbs.querySelectorAll("i").forEach((i) => { i.style.width = i.style.height = "14px"; });
+}
+
+function fileRow(entry) {
   const path = join(state.path, entry.name);
-  const url = `api/download?${qs({ space: state.space, path })}`;
-  const el = document.createElement("div");
-  el.className = "item";
-  const thumb = document.createElement("div");
-  thumb.className = "thumb";
-  if (IMAGE.test(entry.name)) {
-    const img = document.createElement("img");
+  const kind = entry.is_dir ? null : kindOf(entry.name);
+  const row = el("div", "row");
+
+  const thumb = el("div", entry.is_dir ? "thumb folder" : "thumb");
+  if (kind) {
+    const img = el("img");
     img.loading = "lazy";
-    img.src = url;
+    img.src = thumbUrl(path, entry.v);
+    img.onerror = () => { thumb.innerHTML = ""; thumb.append(iconEl(kind === "video" ? "video" : "photos")); };
     thumb.append(img);
   } else {
-    thumb.textContent = icon(entry);
+    thumb.append(iconEl(entry.is_dir ? "folder" : "file"));
   }
-  const name = document.createElement("div");
-  name.className = "name";
-  name.textContent = entry.name;
-  const meta = document.createElement("div");
-  meta.className = "meta";
-  meta.textContent = entry.is_dir ? "Cartella" : formatSize(entry.size);
-  const del = document.createElement("button");
-  del.className = "del";
+
+  const actions = el("div", "row-actions");
+  if (!entry.is_dir) {
+    const dl = el("a", "icon-btn");
+    dl.href = fileUrl(path);
+    dl.title = "Scarica";
+    dl.append(iconEl("download"));
+    dl.onclick = (e) => e.stopPropagation();
+    actions.append(dl);
+  }
+  const del = el("button", "icon-btn");
   del.title = "Sposta nel cestino";
-  del.textContent = "✕";
+  del.append(iconEl("trash"));
   del.onclick = async (e) => {
     e.stopPropagation();
     if (!confirm(`Spostare "${entry.name}" nel cestino?`)) return;
-    await api(`api/files?${qs({ space: state.space, path })}`, { method: "DELETE" });
-    load(); loadStatus();
+    await removeItem(path);
+    render();
   };
-  el.append(thumb, name, meta, del);
-  el.onclick = () => (entry.is_dir ? open(path) : window.open(url, "_blank"));
-  return el;
+  actions.append(del);
+
+  row.append(
+    thumb,
+    el("div", "name", entry.name),
+    el("div", "meta", shortFmt.format(entry.modified * 1000)),
+    el("div", "meta", entry.is_dir ? "—" : formatSize(entry.size)),
+    actions,
+  );
+  row.onclick = () => {
+    if (entry.is_dir) return go(state.space, "files", path);
+    if (kind) return openViewer(state.items.findIndex((i) => i.path === path));
+    window.open(fileUrl(path, true), "_blank");
+  };
+  return row;
 }
 
-function open(path) { state.path = path; load(); }
+async function removeItem(path) {
+  await api(`api/files?${qs({ space: state.space, path })}`, { method: "DELETE" });
+  loadStatus();
+}
 
-async function upload(files) {
-  const progress = $("progress");
-  progress.hidden = false;
-  let done = 0;
-  for (const file of files) {
-    progress.textContent = `Caricamento ${done + 1} di ${files.length}: ${file.name}`;
+// --- Viewer -------------------------------------------------------------------
+
+function openViewer(index) {
+  if (index < 0) return;
+  state.viewerIndex = index;
+  $("viewer").hidden = false;
+  document.body.style.overflow = "hidden";
+  showViewerItem();
+}
+
+function closeViewer() {
+  $("viewer").hidden = true;
+  $("v-stage").innerHTML = "";
+  document.body.style.overflow = "";
+}
+
+function showViewerItem() {
+  const item = state.items[state.viewerIndex];
+  if (!item) return closeViewer();
+  const stage = $("v-stage");
+  stage.innerHTML = "";
+  if (item.kind === "video") {
+    const video = el("video");
+    video.src = fileUrl(item.path, true);
+    video.controls = true;
+    video.autoplay = true;
+    video.playsInline = true;
+    video.poster = thumbUrl(item.path, item.v, "l");
+    stage.append(video);
+  } else {
+    const img = el("img");
+    img.src = thumbUrl(item.path, item.v, "l");
+    img.alt = item.name;
+    stage.append(img);
+    // Preload the neighbours so swiping feels instant.
+    for (const n of [state.items[state.viewerIndex + 1], state.items[state.viewerIndex - 1]]) {
+      if (n && n.kind === "image") new Image().src = thumbUrl(n.path, n.v, "l");
+    }
+  }
+  const date = new Date(item.taken * 1000);
+  $("v-date").textContent = `${dayFmt.format(date)} · ${timeFmt.format(date)}`;
+  $("v-name").textContent = item.name;
+  $("v-download").href = fileUrl(item.path);
+  $("v-prev").hidden = state.viewerIndex === 0;
+  $("v-next").hidden = state.viewerIndex === state.items.length - 1;
+}
+
+function step(delta) {
+  const next = state.viewerIndex + delta;
+  if (next < 0 || next >= state.items.length) return;
+  state.viewerIndex = next;
+  showViewerItem();
+}
+
+$("v-close").onclick = closeViewer;
+$("v-prev").onclick = () => step(-1);
+$("v-next").onclick = () => step(1);
+$("v-delete").onclick = async () => {
+  const item = state.items[state.viewerIndex];
+  if (!confirm(`Spostare "${item.name}" nel cestino?`)) return;
+  await removeItem(item.path);
+  state.items.splice(state.viewerIndex, 1);
+  if (state.viewerIndex >= state.items.length) state.viewerIndex--;
+  state.items.length ? showViewerItem() : closeViewer();
+  render();
+};
+document.addEventListener("keydown", (e) => {
+  if ($("viewer").hidden) return;
+  if (e.key === "Escape") closeViewer();
+  if (e.key === "ArrowLeft") step(-1);
+  if (e.key === "ArrowRight") step(1);
+});
+let touchX = null;
+$("v-stage").addEventListener("touchstart", (e) => { touchX = e.touches[0].clientX; }, { passive: true });
+$("v-stage").addEventListener("touchend", (e) => {
+  if (touchX === null) return;
+  const dx = e.changedTouches[0].clientX - touchX;
+  if (Math.abs(dx) > 50) step(dx < 0 ? 1 : -1);
+  touchX = null;
+});
+
+// --- Upload -------------------------------------------------------------------
+
+function uploadOne(file, path, onProgress) {
+  return new Promise((resolve, reject) => {
     const form = new FormData();
     form.append("space", state.space);
-    form.append("path", state.path);
+    form.append("path", path);
     form.append("file", file);
-    try { await api("api/upload", { method: "POST", body: form }); done++; }
-    catch (err) { alert(`${file.name}: ${err.message}`); }
-  }
-  progress.hidden = true;
-  load(); loadStatus();
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "api/upload");
+    xhr.upload.onprogress = (e) => e.lengthComputable && onProgress(e.loaded);
+    xhr.onload = () => (xhr.status < 300 ? resolve() : reject(new Error(JSON.parse(xhr.responseText || "{}").detail || xhr.statusText)));
+    xhr.onerror = () => reject(new Error("Connessione interrotta"));
+    xhr.send(form);
+  });
 }
 
-async function loadStatus() {
-  try {
-    const { disk, usage } = await api("api/status");
-    showSetup(disk !== "mounted", disk);
-    if (disk !== "mounted") {
-      $("disk-label").textContent = disk === "missing" ? "⚠️ Disco NAS non trovato" : "⚠️ Nessun disco configurato";
-      return;
+async function upload(files) {
+  if (!files.length) return;
+  // In the gallery new photos go to Foto/<year>/<month>, like a camera roll.
+  const now = new Date();
+  const target = state.view === "photos"
+    ? join("Foto", String(now.getFullYear()), String(now.getMonth() + 1).padStart(2, "0"))
+    : state.path;
+  const total = files.reduce((sum, f) => sum + f.size, 0) || 1;
+  let done = 0;
+  const errors = [];
+  $("toast").hidden = false;
+  for (const [i, file] of files.entries()) {
+    $("toast-text").textContent = `Caricamento ${i + 1} di ${files.length} · ${file.name}`;
+    try {
+      await uploadOne(file, target, (loaded) => { $("toast-bar").style.width = `${((done + loaded) / total) * 100}%`; });
+    } catch (err) {
+      errors.push(`${file.name}: ${err.message}`);
     }
-    $("disk-label").textContent = `${formatSize(usage.used)} di ${formatSize(usage.total)}`;
-    $("disk-bar").style.width = `${(usage.used / usage.total) * 100}%`;
-  } catch { /* shown by load() */ }
+    done += file.size;
+  }
+  $("toast-text").textContent = errors.length ? `${errors.length} file non caricati` : `${files.length} elementi caricati`;
+  $("toast-bar").style.width = "100%";
+  if (errors.length) alert(errors.join("\n"));
+  setTimeout(() => { $("toast").hidden = true; $("toast-bar").style.width = "0"; }, 2500);
+  render();
+  loadStatus();
 }
 
-document.querySelectorAll(".nav-item").forEach((btn) => {
-  btn.onclick = () => {
-    document.querySelector(".nav-item.active").classList.remove("active");
-    btn.classList.add("active");
-    state.space = btn.dataset.space;
-    open("");
-  };
-});
+$("file-input").onchange = (e) => { upload([...e.target.files]); e.target.value = ""; };
+const main = $("main");
+main.ondragover = (e) => { e.preventDefault(); if (!$("setup").hidden) return; main.classList.add("dragging"); };
+main.ondragleave = (e) => { if (!main.contains(e.relatedTarget)) main.classList.remove("dragging"); };
+main.ondrop = (e) => {
+  e.preventDefault();
+  main.classList.remove("dragging");
+  if ($("setup").hidden) upload([...e.dataTransfer.files]);
+};
 
 $("new-folder").onclick = async () => {
   const name = prompt("Nome della nuova cartella");
@@ -138,25 +396,34 @@ $("new-folder").onclick = async () => {
   form.append("space", state.space);
   form.append("path", state.path);
   form.append("name", name);
-  try { await api("api/folders", { method: "POST", body: form }); load(); }
+  try { await api("api/folders", { method: "POST", body: form }); render(); }
   catch (err) { alert(err.message); }
 };
 
-$("file-input").onchange = (e) => upload([...e.target.files]);
+// --- Disk status and setup wizard --------------------------------------------
 
-const drop = $("drop");
-drop.ondragover = (e) => { e.preventDefault(); drop.classList.add("dragging"); };
-drop.ondragleave = (e) => { if (!drop.contains(e.relatedTarget)) drop.classList.remove("dragging"); };
-drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove("dragging"); upload([...e.dataTransfer.files]); };
+async function loadStatus() {
+  try {
+    const { disk, usage } = await api("api/status");
+    showSetup(disk !== "mounted", disk);
+    if (disk !== "mounted") {
+      $("disk-label").textContent = disk === "missing" ? "Disco NAS non trovato" : "Nessun disco configurato";
+      return false;
+    }
+    $("disk-label").textContent = `${formatSize(usage.free)} liberi su ${formatSize(usage.total)}`;
+    $("disk-bar").style.width = `${(usage.used / usage.total) * 100}%`;
+    return true;
+  } catch {
+    return false;
+  }
+}
 
-// --- Disk setup wizard -------------------------------------------------------
-
-const FS_NAMES = { ext4: "ext4", exfat: "exFAT", ntfs: "NTFS" };
+const FS_NAMES = { ext4: "ext4", exfat: "exFAT", ntfs: "NTFS", vfat: "FAT32" };
 
 function showSetup(visible, disk) {
   $("setup").hidden = !visible;
-  for (const id of ["grid", "empty", "crumbs"]) $(id).hidden = visible;
-  document.querySelector(".actions").hidden = visible;
+  for (const id of ["gallery", "files", "crumbs", "topbar"]) $(id).hidden = visible;
+  if (visible) showEmpty(null);
   if (!visible) return;
   if (!state.user || !state.user.is_admin) {
     $("setup-lead").textContent = "Il NAS non ha ancora un disco. Chiedi a un amministratore di Home Assistant di configurarlo.";
@@ -182,31 +449,25 @@ async function loadDisks() {
         "\"Modalità protetta\", riavvia l'add-on e torna qui."));
     }
     if (!disks.length) list.innerHTML = '<p class="lead">Nessun disco trovato. Collegane uno e premi "Aggiorna elenco".</p>';
-    for (const disk of disks) list.append(diskCard(disk));
+    for (const disk of disks) list.append(diskItem(disk));
   } catch (err) {
     list.innerHTML = `<p class="lead">${err.message}</p>`;
   }
 }
 
-function el(tag, className, text) {
-  const node = document.createElement(tag);
-  if (className) node.className = className;
-  if (text !== undefined) node.textContent = text;
-  return node;
-}
-
-function diskCard(disk) {
-  const card = el("div", "disk-card");
+function diskItem(disk) {
+  const card = el("div", "disk-item");
+  const badge = el("div", "disk-icon");
+  badge.append(iconEl("disk"));
   const info = el("div", "disk-info");
   const kind = [disk.transport, disk.removable ? "rimovibile" : ""].filter(Boolean).join(" · ");
   info.append(el("div", "disk-title", disk.model), el("div", "disk-sub", [formatSize(disk.size), kind, disk.path].filter(Boolean).join(" · ")));
+  card.append(badge, info);
 
   if (!disk.accessible) {
     info.append(el("div", "disk-sub", "Disco non accessibile finché la modalità protetta è attiva"));
-    card.append(el("div", "disk-icon", disk.transport === "USB" ? "🔌" : "💽"), info);
     return card;
   }
-
   for (const part of disk.partitions) {
     const row = el("div", "part-row");
     const desc = [part.label || "senza nome", FS_NAMES[part.fstype] || part.fstype || "non formattata", formatSize(part.size)].join(" · ");
@@ -221,27 +482,23 @@ function diskCard(disk) {
     }
     info.append(row);
   }
-
   const actions = el("div", "disk-actions");
   const format = el("button", disk.partitions.some((p) => p.usable) ? "btn link" : "btn danger",
     disk.partitions.length ? "Cancella tutto e formatta" : "Prepara disco (formatta)");
   format.onclick = () => askFormat(disk, format);
   actions.append(format);
   info.append(actions);
-
-  card.append(el("div", "disk-icon", disk.transport === "USB" ? "🔌" : "💽"), info);
   return card;
 }
 
 async function runDiskAction(button, url, fields) {
   const form = new FormData();
   for (const [key, value] of Object.entries(fields)) form.append(key, value);
-  document.querySelectorAll(".disk-card button").forEach((b) => (b.disabled = true));
+  document.querySelectorAll(".disk-item button").forEach((b) => (b.disabled = true));
   button.textContent = "Attendi…";
   try {
     await api(url, { method: "POST", body: form });
-    await loadStatus();
-    open("");
+    if (await loadStatus()) render();
   } catch (err) {
     alert(err.message);
     loadDisks();
@@ -262,7 +519,20 @@ function askFormat(disk, button) {
 
 $("disk-refresh").onclick = loadDisks;
 
+// --- Start --------------------------------------------------------------------
+
+document.querySelectorAll(".nav-item").forEach((btn) => {
+  btn.onclick = () => go(btn.dataset.space, btn.dataset.view);
+});
+paintIcons();
+
 api("api/me")
-  .then((u) => { state.user = u; $("user").textContent = `👤 ${u.display_name}`; })
+  .then((u) => {
+    state.user = u;
+    const avatar = el("span", "avatar", (u.display_name || "?").charAt(0).toUpperCase());
+    $("user").append(avatar, el("span", "", u.display_name));
+  })
   .catch(() => {})
-  .finally(() => { loadStatus(); load(); });
+  .finally(async () => {
+    if (await loadStatus()) go("personal", "photos");
+  });
