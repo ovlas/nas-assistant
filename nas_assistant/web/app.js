@@ -336,19 +336,61 @@ $("v-stage").addEventListener("touchend", (e) => {
 
 // --- Upload -------------------------------------------------------------------
 
-function uploadOne(file, path, onProgress) {
+// Files travel in 16 MB pieces: a dropped connection only costs one piece,
+// and no request goes over the 100 MB limit of tunnels such as Cloudflare.
+const CHUNK = 16 * 1024 * 1024;
+const STALL_MS = 60 * 1000;
+const RETRIES = 4;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function putChunk(url, blob, onProgress) {
   return new Promise((resolve, reject) => {
-    const form = new FormData();
-    form.append("space", state.space);
-    form.append("path", path);
-    form.append("file", file);
     const xhr = new XMLHttpRequest();
-    xhr.open("POST", "api/upload");
-    xhr.upload.onprogress = (e) => e.lengthComputable && onProgress(e.loaded);
-    xhr.onload = () => (xhr.status < 300 ? resolve() : reject(new Error(JSON.parse(xhr.responseText || "{}").detail || xhr.statusText)));
-    xhr.onerror = () => reject(new Error("Connessione interrotta"));
-    xhr.send(form);
+    let last = Date.now();
+    const watchdog = setInterval(() => {
+      if (Date.now() - last > STALL_MS) xhr.abort();
+    }, 5000);
+    const fail = (message, offset) => { clearInterval(watchdog); reject(Object.assign(new Error(message), { offset })); };
+    xhr.open("PUT", url);
+    xhr.upload.onprogress = (e) => { last = Date.now(); onProgress(e.loaded); };
+    xhr.onload = () => {
+      clearInterval(watchdog);
+      let body = {};
+      try { body = JSON.parse(xhr.responseText || "{}"); } catch { /* not JSON */ }
+      if (xhr.status < 300) return resolve(body);
+      const detail = body.detail || {};
+      if (xhr.status === 409 && typeof detail.offset === "number") return fail("resume", detail.offset);
+      fail(typeof detail === "string" ? detail : detail.message || `Errore ${xhr.status}`);
+    };
+    xhr.onerror = () => fail("Connessione interrotta");
+    xhr.onabort = () => fail("Connessione bloccata");
+    xhr.send(blob);
   });
+}
+
+async function uploadOne(file, path, onProgress) {
+  let offset = 0;
+  let attempts = 0;
+  for (;;) {
+    const end = Math.min(offset + CHUNK, file.size);
+    const final = end >= file.size;
+    const url = `api/upload?${qs({ space: state.space, path, name: file.name, offset, ...(final ? { final: 1 } : {}) })}`;
+    try {
+      await putChunk(url, file.slice(offset, end), (loaded) => onProgress(offset + loaded));
+      if (final) return;
+      offset = end;
+      attempts = 0;
+    } catch (err) {
+      if (err.offset !== undefined) { offset = err.offset; continue; }  // server tells where to resume
+      if (++attempts >= RETRIES) throw err;
+      $("toast-text").textContent = `Connessione instabile, riprovo… (${attempts}/${RETRIES - 1})`;
+      await sleep(2000 * attempts);
+      // Resume from what actually reached the disk, not from the start of the piece.
+      try {
+        ({ offset } = await api(`api/upload?${qs({ space: state.space, path, name: file.name })}`));
+      } catch { /* still offline: retry the same piece */ }
+    }
+  }
 }
 
 async function upload(files) {

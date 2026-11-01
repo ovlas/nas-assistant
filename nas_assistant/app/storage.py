@@ -99,6 +99,14 @@ def save_file(user: User, space: str, rel_path: str, name: str, data: BinaryIO) 
     return {"name": target.name, "size": target.stat().st_size}
 
 
+def chunk_targets(user: User, space: str, rel_path: str, name: str):
+    """Destination of a chunked upload and the hidden file it grows in meanwhile."""
+    folder = resolve(user, space, rel_path)
+    folder.mkdir(parents=True, exist_ok=True)
+    target = folder / _check_name(name)
+    return folder / f".{target.name}.part", target
+
+
 def move_to_trash(user: User, space: str, rel_path: str) -> None:
     target = resolve(user, space, rel_path)
     if target == _space_root(user, space).resolve():

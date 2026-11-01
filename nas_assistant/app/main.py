@@ -1,3 +1,5 @@
+import asyncio
+import os
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
@@ -10,7 +12,11 @@ from .auth import User, admin_user, current_user
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
-app = FastAPI(title="NAS Assistant", version="0.3.1")
+app = FastAPI(title="NAS Assistant", version="0.3.2")
+
+# Small boards: decode at most two big images at once. Waiting requests queue
+# here, outside the worker threads, so uploads and browsing never stall behind them.
+_thumb_slots = asyncio.Semaphore(2)
 
 
 @app.get("/api/me")
@@ -66,9 +72,13 @@ def photos(space: str = "personal", user: User = Depends(current_user)):
 
 
 @app.get("/api/thumb")
-def thumb(space: str, path: str, size: str = "s", user: User = Depends(current_user)):
+async def thumb(space: str, path: str, size: str = "s", user: User = Depends(current_user)):
+    src = storage.resolve(user, space, path)
+    out = media.thumb_path(src, size)
+    if not out.exists():
+        async with _thumb_slots:
+            await run_in_threadpool(media.make_thumbnail, src, size, out)
     # The URL carries the file version (?v=mtime), so the browser may cache it forever.
-    out = media.thumbnail(storage.resolve(user, space, path), size)
     return FileResponse(out, media_type="image/webp",
                         headers={"Cache-Control": "private, max-age=31536000, immutable"})
 
@@ -89,6 +99,34 @@ def upload(
 ):
     # Sync handler: FastAPI runs it in a thread, so big copies don't block the event loop.
     return storage.save_file(user, space, path, file.filename or "file", file.file)
+
+
+@app.get("/api/upload")
+async def upload_status(space: str, name: str, path: str = "", user: User = Depends(current_user)):
+    """How many bytes of an interrupted upload the server already has."""
+    partial, _ = storage.chunk_targets(user, space, path, name)
+    return {"offset": partial.stat().st_size if partial.exists() else 0}
+
+
+@app.put("/api/upload")
+async def upload_chunk(
+    request: Request, space: str, name: str, path: str = "", offset: int = 0, final: bool = False,
+    user: User = Depends(current_user),
+):
+    """Resumable upload, one chunk per request: send the file in pieces with
+    their byte offset; the last piece has final=1. A 409 tells the client
+    how much the server already has, so it can resume from there."""
+    partial, target = storage.chunk_targets(user, space, path, name)
+    have = partial.stat().st_size if partial.exists() else 0
+    if offset and offset != have:
+        raise HTTPException(409, {"message": "Riprendo il caricamento", "offset": have})
+    with open(partial, "ab" if offset else "wb") as out:
+        async for chunk in request.stream():
+            out.write(chunk)
+    if not final:
+        return {"offset": partial.stat().st_size}
+    os.replace(partial, target)
+    return {"name": target.name, "size": target.stat().st_size}
 
 
 @app.get("/api/download")

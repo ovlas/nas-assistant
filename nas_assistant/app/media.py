@@ -9,7 +9,6 @@ import io
 import os
 import sqlite3
 import subprocess
-import threading
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
@@ -33,9 +32,6 @@ THUMB_SIZES = {"s": 400, "l": 1600}
 EXIF_IFD = 0x8769
 EXIF_DATE_TAGS = (36867, 36868)  # DateTimeOriginal, DateTimeDigitized
 TIFF_DATE_TAG = 306  # DateTime
-
-# Small boards: never decode more than two big images at once.
-_workers = threading.Semaphore(2)
 
 
 def kind_of(name: str) -> Optional[str]:
@@ -67,31 +63,32 @@ def _video_frame(src: Path) -> Image.Image:
     raise HTTPException(415, "Impossibile leggere il video")
 
 
-def thumbnail(src: Path, size: str) -> Path:
+def thumb_path(src: Path, size: str) -> Path:
+    """Where the thumbnail of this version of the file is cached."""
     if size not in THUMB_SIZES or not src.is_file():
         raise HTTPException(404, "Miniatura non disponibile")
-    kind = kind_of(src.name)
-    if not kind:
+    if not kind_of(src.name):
         raise HTTPException(415, "Formato non supportato")
     stat = src.stat()
     key = hashlib.sha1(f"{src}|{stat.st_mtime_ns}|{stat.st_size}|{size}".encode()).hexdigest()
-    out = _meta_dir() / "thumbs" / key[:2] / f"{key}.webp"
+    return _meta_dir() / "thumbs" / key[:2] / f"{key}.webp"
+
+
+def make_thumbnail(src: Path, size: str, out: Path) -> Path:
+    """Decode and shrink the image or a video frame. Slow: call it from a worker thread."""
     if out.exists():
         return out
     out.parent.mkdir(parents=True, exist_ok=True)
-    with _workers:
-        if out.exists():
-            return out
-        try:
-            img = _video_frame(src) if kind == "video" else ImageOps.exif_transpose(Image.open(src))
-            img.thumbnail((THUMB_SIZES[size],) * 2)
-            if img.mode not in ("RGB", "RGBA"):
-                img = img.convert("RGB")
-            partial = out.with_suffix(".part")
-            img.save(partial, "WEBP", quality=80, method=4)
-            os.replace(partial, out)
-        except (OSError, SyntaxError, subprocess.TimeoutExpired):
-            raise HTTPException(415, "Impossibile creare la miniatura")
+    try:
+        img = _video_frame(src) if kind_of(src.name) == "video" else ImageOps.exif_transpose(Image.open(src))
+        img.thumbnail((THUMB_SIZES[size],) * 2)
+        if img.mode not in ("RGB", "RGBA"):
+            img = img.convert("RGB")
+        partial = out.with_suffix(f".{os.getpid()}.part")
+        img.save(partial, "WEBP", quality=80, method=4)
+        os.replace(partial, out)
+    except (OSError, SyntaxError, subprocess.TimeoutExpired):
+        raise HTTPException(415, "Impossibile creare la miniatura")
     return out
 
 
