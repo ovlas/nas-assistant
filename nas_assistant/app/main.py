@@ -4,23 +4,40 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import storage
-from .auth import User, current_user
+from . import disks, storage
+from .auth import User, admin_user, current_user
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
-app = FastAPI(title="NAS Assistant", version="0.1.0")
+app = FastAPI(title="NAS Assistant", version="0.2.0")
 
 
 @app.get("/api/me")
 async def me(user: User = Depends(current_user)):
-    return {"id": user.id, "name": user.name, "display_name": user.display_name}
+    return {"id": user.id, "name": user.name, "display_name": user.display_name, "is_admin": user.is_admin}
 
 
 @app.get("/api/status")
 async def status(user: User = Depends(current_user)):
-    state = storage.disk_state()
+    state = disks.state()
     return {"disk": state, "usage": storage.usage() if state == "mounted" else None}
+
+
+@app.get("/api/disks")
+def list_disks(user: User = Depends(admin_user)):
+    return {"disks": disks.list_disks()}
+
+
+@app.post("/api/disks/use")
+def use_disk(uuid: str = Form(...), user: User = Depends(admin_user)):
+    disks.use_partition(uuid)
+    return {"ok": True}
+
+
+@app.post("/api/disks/format")
+def format_disk(path: str = Form(...), confirm: str = Form(...), user: User = Depends(admin_user)):
+    disks.format_disk(path, confirm)
+    return {"ok": True}
 
 
 @app.get("/api/files")

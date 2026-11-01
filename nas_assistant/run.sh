@@ -2,6 +2,10 @@
 set -e
 
 DISK="$(bashio::config 'disk')"
+# Disk chosen from the setup wizard, used when the option is left empty.
+if ! bashio::var.has_value "${DISK}" && [ -f /data/disk.json ]; then
+    DISK="$(jq -r '.uuid // empty' /data/disk.json)"
+fi
 export NAS_ROOT=/nas
 export NAS_FAMILY_NAME="$(bashio::config 'family_folder_name')"
 export NAS_LOG_LEVEL="$(bashio::config 'log_level')"
@@ -19,7 +23,7 @@ if bashio::var.has_value "${DISK}"; then
         export NAS_DISK_STATE=mounted
     fi
 else
-    bashio::log.warning "Nessun disco NAS configurato: apri l'interfaccia per sceglierne uno."
+    bashio::log.warning "Nessun disco NAS configurato: aprilo dalla barra laterale per sceglierne uno."
     export NAS_DISK_STATE=unconfigured
 fi
 

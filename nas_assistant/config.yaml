@@ -1,5 +1,5 @@
 name: NAS Assistant
-version: "0.1.0"
+version: "0.2.0"
 slug: nas_assistant
 description: Il cloud di famiglia, in locale, con uno spazio privato per ogni utente di Home Assistant
 url: https://github.com/ovlas/nas-assistant
@@ -13,11 +13,14 @@ ingress: true
 ingress_port: 8456
 panel_icon: mdi:folder-home
 panel_title: NAS
+# Every family member sees the panel, not only HA admins.
+panel_admin: false
 ports:
   8456/tcp: 8456
 ports_description:
   8456/tcp: API per le app mobili (LAN / Tailscale)
 homeassistant_api: true
+udev: true
 # Needed to mount the dedicated NAS disk inside the container.
 # Lowers the security rating: to be narrowed once the disk wizard is done.
 full_access: true

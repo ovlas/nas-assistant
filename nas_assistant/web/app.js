@@ -1,5 +1,5 @@
 // All URLs are relative so the UI works behind Ingress (/api/hassio_ingress/<token>/).
-const state = { space: "personal", path: "" };
+const state = { space: "personal", path: "", user: null };
 const $ = (id) => document.getElementById(id);
 const IMAGE = /\.(jpe?g|png|gif|webp|heic|avif)$/i;
 const VIDEO = /\.(mp4|mov|m4v|webm)$/i;
@@ -112,6 +112,7 @@ async function upload(files) {
 async function loadStatus() {
   try {
     const { disk, usage } = await api("api/status");
+    showSetup(disk !== "mounted", disk);
     if (disk !== "mounted") {
       $("disk-label").textContent = disk === "missing" ? "⚠️ Disco NAS non trovato" : "⚠️ Nessun disco configurato";
       return;
@@ -148,6 +149,109 @@ drop.ondragover = (e) => { e.preventDefault(); drop.classList.add("dragging"); }
 drop.ondragleave = (e) => { if (!drop.contains(e.relatedTarget)) drop.classList.remove("dragging"); };
 drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove("dragging"); upload([...e.dataTransfer.files]); };
 
-api("api/me").then((u) => { $("user").textContent = `👤 ${u.display_name}`; }).catch(() => {});
-loadStatus();
-load();
+// --- Disk setup wizard -------------------------------------------------------
+
+const FS_NAMES = { ext4: "ext4", exfat: "exFAT", ntfs: "NTFS" };
+
+function showSetup(visible, disk) {
+  $("setup").hidden = !visible;
+  for (const id of ["grid", "empty", "crumbs"]) $(id).hidden = visible;
+  document.querySelector(".actions").hidden = visible;
+  if (!visible) return;
+  if (!state.user || !state.user.is_admin) {
+    $("setup-lead").textContent = "Il NAS non ha ancora un disco. Chiedi a un amministratore di Home Assistant di configurarlo.";
+    $("disk-list").innerHTML = "";
+    $("disk-refresh").hidden = true;
+    return;
+  }
+  if (disk === "missing") {
+    $("setup-lead").textContent = "Il disco del NAS non è collegato. Ricollegalo e riavvia l'add-on, oppure scegline un altro.";
+  }
+  loadDisks();
+}
+
+async function loadDisks() {
+  const list = $("disk-list");
+  list.innerHTML = '<p class="lead">Cerco i dischi…</p>';
+  try {
+    const { disks } = await api("api/disks");
+    list.innerHTML = "";
+    if (!disks.length) list.innerHTML = '<p class="lead">Nessun disco trovato. Collegane uno e premi "Aggiorna elenco".</p>';
+    for (const disk of disks) list.append(diskCard(disk));
+  } catch (err) {
+    list.innerHTML = `<p class="lead">${err.message}</p>`;
+  }
+}
+
+function el(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+function diskCard(disk) {
+  const card = el("div", "disk-card");
+  const info = el("div", "disk-info");
+  const kind = [disk.transport, disk.removable ? "rimovibile" : ""].filter(Boolean).join(" · ");
+  info.append(el("div", "disk-title", disk.model), el("div", "disk-sub", [formatSize(disk.size), kind, disk.path].filter(Boolean).join(" · ")));
+
+  for (const part of disk.partitions) {
+    const row = el("div", "part-row");
+    const desc = [part.label || "senza nome", FS_NAMES[part.fstype] || part.fstype || "non formattata", formatSize(part.size)].join(" · ");
+    row.append(el("span", "", desc));
+    if (part.usable) {
+      const use = el("button", "btn primary", "Usa così com'è");
+      use.title = "Nessun file viene cancellato";
+      use.onclick = () => runDiskAction(use, "api/disks/use", { uuid: part.uuid });
+      row.append(use);
+    } else {
+      row.append(el("span", "disk-sub", "formato non supportato"));
+    }
+    info.append(row);
+  }
+
+  const actions = el("div", "disk-actions");
+  const format = el("button", disk.partitions.some((p) => p.usable) ? "btn link" : "btn danger",
+    disk.partitions.length ? "Cancella tutto e formatta" : "Prepara disco (formatta)");
+  format.onclick = () => askFormat(disk, format);
+  actions.append(format);
+  info.append(actions);
+
+  card.append(el("div", "disk-icon", disk.transport === "USB" ? "🔌" : "💽"), info);
+  return card;
+}
+
+async function runDiskAction(button, url, fields) {
+  const form = new FormData();
+  for (const [key, value] of Object.entries(fields)) form.append(key, value);
+  document.querySelectorAll(".disk-card button").forEach((b) => (b.disabled = true));
+  button.textContent = "Attendi…";
+  try {
+    await api(url, { method: "POST", body: form });
+    await loadStatus();
+    open("");
+  } catch (err) {
+    alert(err.message);
+    loadDisks();
+  }
+}
+
+function askFormat(disk, button) {
+  const dialog = $("format-dialog");
+  $("format-name").textContent = `${disk.model} (${formatSize(disk.size)})`;
+  $("format-confirm").value = "";
+  dialog.onclose = () => {
+    if (dialog.returnValue === "ok") {
+      runDiskAction(button, "api/disks/format", { path: disk.path, confirm: $("format-confirm").value.trim() });
+    }
+  };
+  dialog.showModal();
+}
+
+$("disk-refresh").onclick = loadDisks;
+
+api("api/me")
+  .then((u) => { state.user = u; $("user").textContent = `👤 ${u.display_name}`; })
+  .catch(() => {})
+  .finally(() => { loadStatus(); load(); });

@@ -15,20 +15,17 @@ from typing import BinaryIO, List
 
 from fastapi import HTTPException
 
+from . import disks
 from .auth import User
 
-NAS_ROOT = Path(os.environ.get("NAS_ROOT", "/nas"))
+NAS_ROOT = disks.NAS_ROOT
 CHUNK = 1024 * 1024
 SPACES = ("personal", "family")
 _SAFE_ID = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
-def disk_state() -> str:
-    return os.environ.get("NAS_DISK_STATE", "mounted")
-
-
 def _require_disk() -> None:
-    if disk_state() != "mounted":
+    if disks.state() != "mounted":
         # Never fall back to the main disk.
         raise HTTPException(503, "Disco NAS non disponibile")
 

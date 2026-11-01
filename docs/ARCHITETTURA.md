@@ -80,7 +80,7 @@ l'upload riparte da dove si era fermato. Opzioni nell'app: "solo Wi-Fi", "solo i
 - [x] Riconoscimento utente HA via Ingress
 - [x] Spazio personale e cartella Famiglia
 - [x] Elenco file, cartelle, caricamento, download, cestino
-- [ ] Montaggio disco dedicato + procedura guidata
+- [x] Montaggio disco dedicato + procedura guidata (usa così com'è o formatta in ext4)
 - [ ] Miniature foto/video (libvips, ffmpeg)
 - [ ] Quote per utente
 - [ ] Sensori in HA

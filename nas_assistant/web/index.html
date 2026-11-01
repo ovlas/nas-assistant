@@ -28,6 +28,24 @@
         <label class="btn primary">Carica<input type="file" id="file-input" multiple hidden></label>
       </div>
     </header>
+    <section class="setup" id="setup" hidden>
+      <h1>Scegli il disco del NAS</h1>
+      <p class="lead" id="setup-lead">Collega un disco USB o SATA: qui vedi quelli disponibili. Il disco di Home Assistant non compare mai.</p>
+      <div class="disk-list" id="disk-list"></div>
+      <button class="btn" id="disk-refresh">Aggiorna elenco</button>
+    </section>
+    <dialog id="format-dialog">
+      <form method="dialog">
+        <h2>Formattare il disco?</h2>
+        <p>Tutti i dati su <strong id="format-name"></strong> verranno <strong>cancellati per sempre</strong>.</p>
+        <p>Per confermare scrivi <code>FORMATTA</code></p>
+        <input id="format-confirm" autocomplete="off">
+        <div class="dialog-actions">
+          <button class="btn" value="cancel">Annulla</button>
+          <button class="btn danger" id="format-go" value="ok">Formatta e usa</button>
+        </div>
+      </form>
+    </dialog>
     <div id="progress" class="progress" hidden></div>
     <section class="grid" id="grid"></section>
     <p class="empty" id="empty" hidden>Trascina qui foto e file per caricarli</p>
