@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <!-- Draft for Material Design Icons (24x24, single colour). The house is
+       solid; the hard disk is cut out of it, with its platter, hub and read arm. -->
+  <defs>
+    <mask id="cut">
+      <rect width="24" height="24" fill="#fff"/>
+      <rect x="7" y="8.6" width="10" height="11.4" rx="1.6" fill="#000"/>
+      <circle cx="12" cy="12.9" r="3.1" fill="#fff"/>
+      <circle cx="12" cy="12.9" r="0.9" fill="#000"/>
+      <path d="M14.4 18.1 L13 14.6" stroke="#fff" stroke-width="1.4" stroke-linecap="round"/>
+      <circle cx="14.4" cy="18.1" r="1" fill="#fff"/>
+      <circle cx="8.4" cy="10" r="0.55" fill="#fff"/>
+      <circle cx="15.6" cy="10" r="0.55" fill="#fff"/>
+      <circle cx="8.4" cy="18.6" r="0.55" fill="#fff"/>
+    </mask>
+  </defs>
+  <path mask="url(#cut)" fill="#000" stroke="#000" stroke-width="2.4" stroke-linejoin="round"
+        d="M12 3.6 L20.2 10.6 V20.2 H3.8 V10.6 Z"/>
+</svg>
