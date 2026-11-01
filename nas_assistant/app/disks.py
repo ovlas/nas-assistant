@@ -1,7 +1,9 @@
 """Find, format and mount the dedicated NAS disk.
 
-The Home Assistant system disk (any disk carrying a `hassos-*` partition) is
-never listed, so it can never be selected or formatted.
+The Home Assistant system disk is never listed, so it can never be selected
+or formatted. It is recognised in two independent ways:
+- a partition label or GPT partition name starting with `hassos`;
+- the disk holding this add-on's own /data folder.
 """
 
 import json
@@ -20,7 +22,9 @@ FS_LABEL = "NAS"
 FORMAT_CONFIRM = "FORMATTA"
 USABLE_FS = ("ext4", "exfat", "ntfs")
 SKIP_NAMES = ("loop", "zram", "ram", "sr")
-LSBLK_COLUMNS = "NAME,PATH,SIZE,TYPE,FSTYPE,LABEL,UUID,MODEL,VENDOR,TRAN,RM"
+LSBLK_COLUMNS = "NAME,PATH,MAJ:MIN,SIZE,TYPE,FSTYPE,LABEL,PARTLABEL,UUID,MODEL,VENDOR,TRAN,RM"
+# Folders that live on the Home Assistant system disk.
+SYSTEM_PATHS = ("/data",)
 
 _state = os.environ.get("NAS_DISK_STATE", "mounted")
 _lock = threading.Lock()
@@ -41,9 +45,34 @@ def _lsblk() -> List[dict]:
     return json.loads(_run("lsblk", "-J", "-b", "-o", LSBLK_COLUMNS))["blockdevices"]
 
 
-def _is_system_disk(dev: dict) -> bool:
+def _probe(node: dict) -> None:
+    """Fill filesystem details lsblk could not get (no udev database in the container)."""
+    if node.get("fstype") and node.get("partlabel") is not None:
+        return
+    result = subprocess.run(["blkid", "-p", "-o", "export", node["path"]], capture_output=True, text=True)
+    info = dict(line.split("=", 1) for line in result.stdout.splitlines() if "=" in line)
+    node["fstype"] = node.get("fstype") or info.get("TYPE", "")
+    node["label"] = node.get("label") or info.get("LABEL", "")
+    node["uuid"] = node.get("uuid") or info.get("UUID", "")
+    node["partlabel"] = node.get("partlabel") or info.get("PART_ENTRY_NAME", "")
+
+
+def _system_devices() -> set:
+    devices = set()
+    for path in SYSTEM_PATHS:
+        if os.path.exists(path):
+            dev = os.stat(path).st_dev
+            devices.add(f"{os.major(dev)}:{os.minor(dev)}")
+    return devices
+
+
+def _is_system_disk(dev: dict, system_devices: set) -> bool:
     nodes = [dev, *(dev.get("children") or [])]
-    return any((n.get("label") or "").startswith("hassos") for n in nodes)
+    for node in nodes:
+        names = (node.get("label") or "", node.get("partlabel") or "")
+        if any(name.startswith("hassos") for name in names) or node.get("maj:min") in system_devices:
+            return True
+    return False
 
 
 def _partition(node: dict) -> dict:
@@ -60,11 +89,14 @@ def _partition(node: dict) -> dict:
 
 def list_disks(devices: Optional[List[dict]] = None) -> List[dict]:
     disks = []
+    system_devices = _system_devices()
     for dev in _lsblk() if devices is None else devices:
         name = dev.get("name", "")
         if dev.get("type") != "disk" or name.startswith(SKIP_NAMES) or "boot" in name:
             continue
-        if _is_system_disk(dev):
+        for node in [dev, *(dev.get("children") or [])]:
+            _probe(node)
+        if _is_system_disk(dev, system_devices):
             continue
         parts = [_partition(c) for c in dev.get("children") or [] if c.get("type") == "part"]
         if not parts and dev.get("fstype"):
