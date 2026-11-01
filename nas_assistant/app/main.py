@@ -9,7 +9,7 @@ from .auth import User, admin_user, current_user
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
-app = FastAPI(title="NAS Assistant", version="0.2.3")
+app = FastAPI(title="NAS Assistant", version="0.2.4")
 
 
 @app.get("/api/me")

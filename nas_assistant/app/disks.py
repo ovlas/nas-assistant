@@ -22,6 +22,7 @@ FS_LABEL = "NAS"
 FORMAT_CONFIRM = "FORMATTA"
 USABLE_FS = ("ext4", "exfat", "ntfs")
 SKIP_NAMES = ("loop", "zram", "ram", "sr")
+MOUNT_CMD = os.environ.get("NAS_MOUNT_CMD", "/usr/local/bin/nas-mount")
 LSBLK_COLUMNS = "NAME,PATH,MAJ:MIN,SIZE,TYPE,FSTYPE,LABEL,PARTLABEL,UUID,MODEL,VENDOR,TRAN,RM"
 # Folders that live on the Home Assistant system disk.
 SYSTEM_PATHS = ("/data",)
@@ -130,7 +131,15 @@ def _mount(uuid: str) -> None:
     global _state
     device = _run("blkid", "-U", uuid).strip()
     NAS_ROOT.mkdir(parents=True, exist_ok=True)
-    _run("mount", device, str(NAS_ROOT))
+    # Same helper as run.sh, so NTFS is never mounted read-only by the legacy driver.
+    _run(MOUNT_CMD, device, str(NAS_ROOT))
+    probe = NAS_ROOT / ".nas_assistant_write_test"
+    try:
+        probe.write_text("ok")
+        probe.unlink()
+    except OSError:
+        subprocess.run(["umount", str(NAS_ROOT)], capture_output=True)
+        raise HTTPException(500, "Il disco si monta ma non è scrivibile")
     CONFIG_FILE.write_text(json.dumps({"uuid": uuid}))
     _state = "mounted"
 

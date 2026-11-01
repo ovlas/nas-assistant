@@ -19,7 +19,7 @@ if bashio::var.has_value "${DISK}"; then
         export NAS_DISK_STATE=missing
     else
         bashio::log.info "Monto ${DEVICE} in ${NAS_ROOT}"
-        mount "${DEVICE}" "${NAS_ROOT}"
+        nas-mount "${DEVICE}" "${NAS_ROOT}"
         export NAS_DISK_STATE=mounted
     fi
 else

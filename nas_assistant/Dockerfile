@@ -10,6 +10,7 @@ RUN pip install --no-cache-dir -r app/requirements.txt
 COPY app app
 COPY web web
 COPY run.sh /run.sh
-RUN chmod a+x /run.sh
+COPY nas-mount /usr/local/bin/nas-mount
+RUN chmod a+x /run.sh /usr/local/bin/nas-mount
 
 CMD [ "/run.sh" ]
