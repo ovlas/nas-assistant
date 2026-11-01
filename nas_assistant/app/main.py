@@ -1,5 +1,9 @@
 import asyncio
 import os
+import secrets
+import shutil
+import tempfile
+import time
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
@@ -7,12 +11,13 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from . import backup, disks, favorites, media, storage
+from . import backup, devices, disks, favorites, media, storage
 from .auth import User, admin_user, avatar, current_user
+from .kinds import media_kind
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
-app = FastAPI(title="NAS Assistant", version="0.10.1")
+app = FastAPI(title="NAS Assistant", version="0.11.0")
 
 # Small boards: decode at most two big images at once. Waiting requests queue
 # here, outside the worker threads, so uploads and browsing never stall behind them.
@@ -22,6 +27,92 @@ _thumb_slots = asyncio.Semaphore(2)
 @app.on_event("startup")
 async def start_backup_scheduler():
     asyncio.get_running_loop().create_task(backup.scheduler())
+
+
+@app.on_event("startup")
+def keep_temp_files_on_nas_disk():
+    """Uploads are buffered in temp files: keep them on the NAS disk, not on Home Assistant's."""
+    if disks.state() == "mounted":
+        tmp = disks.NAS_ROOT / ".nas_assistant" / "tmp"
+        shutil.rmtree(tmp, ignore_errors=True)  # leftovers of an interrupted upload
+        tmp.mkdir(parents=True, exist_ok=True)
+        tempfile.tempdir = str(tmp)
+
+
+# --- Devices: uploads from a phone in the background (iOS Shortcuts) ----------
+
+PUBLIC_URL = os.environ.get("NAS_PUBLIC_URL", "").rstrip("/")
+LAN_URL = "http://homeassistant.local:8456"
+PHOTO_FOLDERS = {"it": "Foto", "es": "Fotos", "de": "Fotos", "fr": "Photos"}
+UPLOAD_FOLDERS = {"it": "Caricati", "es": "Subidas", "de": "Hochgeladen", "fr": "Importés"}
+
+
+async def uploader(request: Request) -> User:
+    """A device key (upload only) or a normal Home Assistant login."""
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer " + devices.PREFIX):
+        user = await run_in_threadpool(devices.owner, auth[len("Bearer "):])
+        if not user:
+            raise HTTPException(401, "Not authorized")
+        return user
+    return await current_user(request)
+
+
+@app.get("/api/devices")
+def list_devices(user: User = Depends(current_user)):
+    return {"devices": devices.listing(user), "public_url": PUBLIC_URL, "lan_url": LAN_URL}
+
+
+@app.post("/api/devices")
+async def add_device(request: Request, user: User = Depends(current_user)):
+    (name,) = await _fields(request, "name")
+    key = await run_in_threadpool(devices.create, user, name)
+    return {"key": key, "public_url": PUBLIC_URL, "lan_url": LAN_URL}
+
+
+@app.delete("/api/devices")
+def remove_device(id: str, user: User = Depends(current_user)):
+    devices.revoke(user, id)
+    return {"ok": True}
+
+
+def _store_from_device(user: User, upload: UploadFile, space: str, lang: str) -> dict:
+    name = os.path.basename(upload.filename or "") or f"file-{int(time.time())}"
+    root = storage.resolve(user, space, "")
+    incoming = disks.NAS_ROOT / ".nas_assistant" / "incoming"
+    incoming.mkdir(parents=True, exist_ok=True)
+    tmp = incoming / secrets.token_hex(8)
+    with open(tmp, "wb") as out:
+        shutil.copyfileobj(upload.file, out, 4 * 1024 * 1024)
+    try:
+        kind = media_kind(name)
+        if kind:
+            # Photos and videos go to Photos/<year>/<month> of when they were taken, like the camera roll.
+            taken = time.localtime(media._taken(tmp, kind, time.time()))
+            folder = f"{PHOTO_FOLDERS.get(lang, 'Photos')}/{taken.tm_year}/{taken.tm_mon:02d}"
+        else:
+            folder = UPLOAD_FOLDERS.get(lang, "Uploads")
+        target_dir = storage.resolve(user, space, folder)
+        target_dir.mkdir(parents=True, exist_ok=True)
+        target = target_dir / storage._check_name(name)
+        size = tmp.stat().st_size
+        # Shortcuts may send the same photo again: skip what is already there.
+        if target.exists() and target.stat().st_size == size:
+            return {"path": str(target.relative_to(root)), "skipped": True}
+        target = storage._free_name(target_dir, target.name)
+        os.replace(tmp, target)
+        return {"path": str(target.relative_to(root)), "size": size, "skipped": False}
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+@app.post("/api/device/upload")
+async def device_upload(request: Request, file: UploadFile = File(...), space: str = Form("personal"),
+                        user: User = Depends(uploader)):
+    """One file per request, multipart field "file": what an iOS Shortcut's
+    "Get contents of URL" sends. Folders are chosen by the server."""
+    lang = request.headers.get("Accept-Language", "en")[:2].lower()
+    return await run_in_threadpool(_store_from_device, user, file, space, lang)
 
 
 @app.get("/api/backup")

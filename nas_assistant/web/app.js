@@ -34,6 +34,8 @@ const ICON_PATHS = {
   layoutList: '<path d="M8.5 6.5h11M8.5 12h11M8.5 17.5h11"/><circle cx="4.8" cy="6.5" r=".9" fill="currentColor"/><circle cx="4.8" cy="12" r=".9" fill="currentColor"/><circle cx="4.8" cy="17.5" r=".9" fill="currentColor"/>',
   layoutIcons: '<rect x="4" y="4" width="6.5" height="6.5" rx="1.6"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.6"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.6"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.6"/>',
   layoutGrid: '<rect x="3.5" y="4" width="17" height="10" rx="2"/><path d="M3.5 18h7M13.5 18h7"/>',
+  phone: '<rect x="6.5" y="2.5" width="11" height="19" rx="2.6"/><path d="M10.5 18.5h3"/>',
+  copy: '<rect x="8" y="8" width="12" height="12" rx="2.4"/><path d="M16 8V6.4A2.4 2.4 0 0 0 13.6 4H6.4A2.4 2.4 0 0 0 4 6.4v7.2A2.4 2.4 0 0 0 6.4 16H8"/>',
   lock: '<rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/>',
   backup: '<path d="M7 18.5h-.5a4 4 0 0 1-.6-7.96A5.5 5.5 0 0 1 16.6 9a3.8 3.8 0 0 1 .9 7.5"/><path d="M12 20.5v-8M9 15.5l3-3 3 3"/>',
   home: '<path d="M4 10.5 12 4l8 6.5V19a1.5 1.5 0 0 1-1.5 1.5H15v-6H9v6H5.5A1.5 1.5 0 0 1 4 19z"/>',
@@ -411,13 +413,15 @@ const APP_COLORS = {
   favorite: "linear-gradient(135deg, #ff6482, #ff2d55)",
   trash: "linear-gradient(135deg, #aeaeb2, #636366)",
   backup: "linear-gradient(135deg, #5e5ce6, #0a84ff)",
+  devices: "linear-gradient(135deg, #64d2ff, #30d158)",
 };
 
 async function renderHome() {
   const seq = renderSeq;
   let data, status;
   try {
-    [data, status, state.backup] = await Promise.all([api("api/home"), api("api/status"), api("api/backup")]);
+    [data, status, state.backup, state.devices] = await Promise.all(
+      [api("api/home"), api("api/status"), api("api/backup"), api("api/devices")]);
   } catch (err) {
     return stale(seq) || showEmpty(t("homeLoadError"), err.message);
   }
@@ -430,7 +434,89 @@ async function renderHome() {
     backupCard(state.backup),
     trashCard(data.trash),
     favoritesCard(data.favorites),
+    devicesCard(state.devices),
   );
+}
+
+// --- Phones: background uploads with an iOS Shortcut ---------------------------
+
+function devicesCard(info) {
+  const node = card("devices-card", "phone", APP_COLORS.devices, t("devicesTitle"),
+    info.devices.length ? t("deviceCount", { n: info.devices.length }) : t("devicesSub"));
+  const body = el("div", "card-body");
+  if (info.devices.length) {
+    const list = el("div", "device-list");
+    for (const device of info.devices) {
+      const row = el("div", "device-row");
+      const text = el("div", "home-text");
+      text.append(el("div", "home-name", device.name),
+        el("div", "card-sub", device.last_used ? t("lastUsed", { when: when(device.last_used) }) : t("neverUsed")));
+      const revoke = el("button", "icon-btn danger-icon");
+      revoke.title = t("revoke");
+      revoke.append(iconEl("close"));
+      revoke.onclick = async () => {
+        if (!confirm(t("confirmRevoke", { name: device.name }))) return;
+        await api(`api/devices?${qs({ id: device.id })}`, { method: "DELETE" });
+        render();
+      };
+      row.append(iconEl("phone"), text, revoke);
+      list.append(row);
+    }
+    body.append(list);
+  } else {
+    body.append(el("p", "card-sub wrap", t("devicesHow")));
+  }
+  const add = el("button", "btn primary", t("connectPhone"));
+  add.onclick = connectPhone;
+  body.append(add);
+  node.append(body);
+  return node;
+}
+
+async function connectPhone() {
+  const name = prompt(t("deviceNamePrompt"), "iPhone");
+  if (!name) return;
+  let info;
+  try {
+    info = await post("api/devices", { name });
+  } catch (err) {
+    return alert(err.message);
+  }
+  const dialog = $("device-dialog");
+  const field = (label, value) => {
+    const wrap = el("div", "copy-field");
+    const input = el("input");
+    input.readOnly = true;
+    input.value = value;
+    input.onclick = () => input.select();
+    const copy = el("button", "icon-btn");
+    copy.title = t("copy");
+    copy.append(iconEl("copy"));
+    copy.onclick = async () => {
+      input.select();
+      try { await navigator.clipboard.writeText(value); copy.classList.add("done"); }
+      catch { document.execCommand("copy"); }
+    };
+    wrap.append(input, copy);
+    const box = el("label", "copy-label");
+    box.append(el("span", "", label), wrap);
+    return box;
+  };
+  const url = `${info.public_url || info.lan_url}/api/device/upload`;
+  const steps = el("ol", "steps");
+  for (const key of ["step1", "step2", "step3", "step4", "step5"]) steps.append(el("li", "", t(key)));
+  const done = el("button", "btn primary", t("done"));
+  done.onclick = () => { dialog.close(); render(); };
+  dialog.replaceChildren(
+    el("h2", "", t("connectTitle", { name })),
+    el("p", "card-sub wrap", t("keyOnce")),
+    field(t("fieldUrl"), url),
+    field(t("fieldHeader"), `Bearer ${info.key}`),
+    steps,
+    el("p", "card-sub wrap", info.public_url ? t("homeUrlTip", { url: `${info.lan_url}/api/device/upload` }) : t("noPublicUrl")),
+    done,
+  );
+  dialog.showModal();
 }
 
 // The user's Home Assistant picture, or their initial when they have none.

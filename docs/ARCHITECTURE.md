@@ -98,6 +98,7 @@ App options: "Wi-Fi only", "only while charging", "only at home".
 - [x] Photo/video thumbnails (Pillow + HEIC, ffmpeg) and timeline gallery
 - [x] Resumable chunked uploads
 - [x] Catalogue by file type, rename, move (also between My space and Family)
+- [x] Background uploads from phones: iOS Shortcut + per-device upload-only keys
 - [x] Backup to a second disk: nightly incremental copy with versions
 - [x] Files as list, icons or grid; Home Assistant profile picture
 - [x] iCloud-style welcome page

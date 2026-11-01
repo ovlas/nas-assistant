@@ -47,6 +47,31 @@ The Backup card on the Home page unlocks:
 Not copied: thumbnails (rebuilt automatically), Recently deleted, uploads still in progress.
 Use two different physical disks: two partitions of the same disk don't protect from a disk failure.
 
+## Uploading from an iPhone in the background
+
+Web pages can't upload in the background on iOS: Safari pauses them as soon as the screen locks.
+NAS Assistant works with an **iOS Shortcut** instead, which keeps going in the background:
+
+1. On the Home page open **iPhone and devices → Connect an iPhone**. You get an address and a key
+   for that device (the key only allows uploads into your space; disconnect the device any time).
+2. Build the Shortcut following the steps shown there: *Repeat with Each* → *Get Contents of URL*
+   (POST, header `Authorization`, Form body with a File field named `file`).
+3. Use it from the Share menu of Photos or Files, or from an Automation (e.g. "when the charger is connected",
+   with *Find Photos* added in the last day) for a nightly camera-roll backup.
+
+Photos and videos go to `Photos/<year>/<month>` of the day they were taken; other files to `Uploads`
+(folder names follow the phone's language). A file that is already there is skipped, so sending the same photos
+twice costs nothing.
+
+**Which address the phone uses**
+
+| Your setup | Address | Notes |
+|---|---|---|
+| Any (at home) | `http://homeassistant.local:8456` | Works with no setup on the home Wi-Fi. Best for the overnight automation and large videos. |
+| Cloudflared add-on | your own host, e.g. `https://nas.example.com` | In the Cloudflared add-on add an *additional host* with service `http://<NAS Assistant hostname>:8456` (shown on this add-on's Info page), then set **Public address** here. Cloudflare limits each request to 100 MB: send larger videos at home. |
+| Tailscale add-on | `http://<Tailscale name of Home Assistant>:8456` | Private, encrypted, no size limit; needs the Tailscale app on the phone. |
+| Home Assistant Cloud (Nabu Casa) only | home address | Nabu Casa forwards Home Assistant itself, not add-on ports, so Shortcuts can't reach NAS Assistant through it. The overnight automation at home still backs up everything; the upcoming mobile app will log in through Home Assistant and also work via Nabu Casa. |
+
 ## Using it
 
 - **Home**: an iCloud-style welcome page with your storage, latest photos, recent files, what the family
@@ -92,6 +117,7 @@ family/                           shared with everyone
 | `backup_device` | Optional second disk for nightly backups. |
 | `backup_time` | When the nightly backup runs (HH:MM). |
 | `backup_keep_days` | Days previous versions of changed or deleted files are kept. |
+| `public_url` | Address of NAS Assistant from outside home (e.g. a Cloudflare Tunnel host), shown when you connect a phone. |
 | `trash_days` | Days an item stays in Recently deleted before it is erased for good (0 = never). |
 | `log_level` | Log detail. |
 

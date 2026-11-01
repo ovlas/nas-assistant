@@ -19,6 +19,7 @@ plus a folder shared with the whole family, on a dedicated disk of your choice.
 - 🧷 Uses your disk as is (ext4, exFAT, NTFS): nothing is formatted unless you ask
 - ⏯️ Resumable uploads that survive dropped connections and large videos
 - 🌍 Speaks your language: follows your Home Assistant profile (English, Italiano, Español, Français, Deutsch)
+- 📲 Background uploads from the iPhone with an iOS Shortcut (Share menu or nightly automation)
 - 📱 iOS and Android apps with automatic photo backup (coming soon)
 - 🏠 Everything stays local
 

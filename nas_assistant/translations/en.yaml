@@ -20,6 +20,9 @@ configuration:
   backup_keep_days:
     name: "Keep old versions (days)"
     description: "How long previous versions of changed or deleted files are kept on the backup disk."
+  public_url:
+    name: "Public address"
+    description: "Address of NAS Assistant from outside home, e.g. https://nas.example.com (a Cloudflare Tunnel host pointing to port 8456). Shown when you connect a phone."
   log_level:
     name: Log level
     description: How much detail the add-on writes to its log.

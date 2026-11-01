@@ -20,6 +20,9 @@ configuration:
   backup_keep_days:
     name: "Garder les anciennes versions (jours)"
     description: "Durée de conservation des versions précédentes des fichiers modifiés ou supprimés."
+  public_url:
+    name: "Adresse publique"
+    description: "Adresse de NAS Assistant depuis l'extérieur, ex. https://nas.exemple.com (un hôte du tunnel Cloudflare vers le port 8456). Affichée quand vous connectez un téléphone."
   log_level:
     name: Niveau de journalisation
     description: Niveau de détail écrit par le module dans son journal.

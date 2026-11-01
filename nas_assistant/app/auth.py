@@ -131,7 +131,8 @@ async def current_user(request: Request) -> User:
     if user:
         return user
     auth = request.headers.get("Authorization", "")
-    if auth.startswith("Bearer "):
+    # Device keys (nas_…) only work for uploads, see devices.py; never sent to Home Assistant.
+    if auth.startswith("Bearer ") and not auth.startswith("Bearer nas_"):
         user = await _from_bearer(auth[len("Bearer "):])
         if user:
             return user

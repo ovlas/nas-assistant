@@ -90,7 +90,19 @@ body.on-home .topbar, body.on-home .crumbs, body.on-home .chips { display: none;
 .card { background: var(--card-bg); border-radius: 22px; overflow: hidden; backdrop-filter: blur(24px) saturate(160%);
         box-shadow: 0 0 0 1px var(--card-line), 0 18px 50px rgba(0,0,0,.18); display: flex; flex-direction: column; min-height: 0; }
 .photos-card, .files-card, .backup-card { grid-column: span 2; }
-.fav-card { grid-column: span 3; }
+.fav-card { grid-column: span 2; }
+.device-list { display: flex; flex-direction: column; gap: 4px; width: 100%; }
+.device-row { display: flex; align-items: center; gap: 12px; padding: 6px 4px; }
+.device-row > i { width: 22px; height: 22px; color: var(--accent); }
+.device-row .home-text { flex: 1; }
+.card-sub.wrap { white-space: normal; }
+.device-dialog { width: min(560px, calc(100vw - 32px)); max-width: none; }
+.device-dialog h2 { font-size: 20px; }
+.copy-label { display: flex; flex-direction: column; gap: 4px; margin: 12px 0; font-size: 13px; color: var(--muted); }
+.copy-field { display: flex; gap: 6px; align-items: center; }
+.copy-field input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+.copy-field .done { color: #30d158; }
+.steps { margin: 14px 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; font-size: 14px; }
 .card-body { padding: 16px 20px 20px; display: flex; flex-direction: column; gap: 12px; align-items: flex-start; }
 .card-body p { margin: 0; }
 .card-body .bar { width: 100%; margin: 0; }
@@ -124,7 +136,7 @@ body.on-home .topbar, body.on-home .crumbs, body.on-home .chips { display: none;
 .mosaic-cell:hover img { transform: scale(1.04); }
 .home-list { display: grid; grid-template-columns: 1fr; padding: 6px 10px 12px; }
 .files-card .home-list { grid-template-columns: 1fr 1fr; column-gap: 18px; }
-.fav-card .home-list { grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: 18px; }
+.fav-card .home-list { grid-template-columns: 1fr 1fr; column-gap: 18px; }
 .home-row { display: flex; align-items: center; gap: 12px; padding: 9px 10px; border: 0; border-radius: 12px; background: none;
             color: inherit; font: inherit; text-align: left; cursor: pointer; min-width: 0; }
 .home-row:hover { background: var(--card-head); }

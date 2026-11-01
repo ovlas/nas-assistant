@@ -20,6 +20,9 @@ configuration:
   backup_keep_days:
     name: "Alte Versionen behalten (Tage)"
     description: "Wie lange frühere Versionen geänderter oder gelöschter Dateien aufbewahrt werden."
+  public_url:
+    name: "Öffentliche Adresse"
+    description: "Adresse von NAS Assistant von unterwegs, z. B. https://nas.beispiel.de (ein Cloudflare-Tunnel-Host auf Port 8456). Wird beim Verbinden eines Telefons angezeigt."
   log_level:
     name: Protokollstufe
     description: Wie ausführlich das Add-on protokolliert.

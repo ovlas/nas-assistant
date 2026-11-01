@@ -20,6 +20,9 @@ configuration:
   backup_keep_days:
     name: "Conserva versioni precedenti (giorni)"
     description: "Per quanto tempo restano sul disco di backup le versioni precedenti dei file modificati o cancellati."
+  public_url:
+    name: "Indirizzo pubblico"
+    description: "Indirizzo di NAS Assistant da fuori casa, es. https://nas.esempio.com (un host del tunnel Cloudflare che punta alla porta 8456). Compare quando colleghi un telefono."
   log_level:
     name: Livello log
     description: Quanti dettagli l'add-on scrive nel log.
