@@ -87,6 +87,10 @@ main { flex: 1; min-width: 0; padding: 22px 30px 60px; position: relative; }
 .badge { position: absolute; right: 6px; bottom: 6px; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center;
          background: rgba(0,0,0,.55); color: #fff; }
 .badge i { width: 12px; height: 12px; }
+.fav-badge { position: absolute; left: 6px; bottom: 6px; color: #fff; filter: drop-shadow(0 1px 2px rgba(0,0,0,.5)); }
+.fav-badge i { width: 18px; height: 18px; }
+.fav-mark { display: inline-block; width: 15px; height: 15px; margin-right: 6px; vertical-align: -2px; color: #ff375f; }
+#v-fav.on { color: #ff375f; }
 
 /* --- File list ----------------------------------------------------------- */
 .file-list { background: var(--panel); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }

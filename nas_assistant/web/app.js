@@ -25,13 +25,18 @@ const ICON_PATHS = {
   archive: '<rect x="3.5" y="4" width="17" height="5" rx="1.5"/><path d="M5 9v9.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V9M10 13h4"/>',
   more: '<circle cx="5.5" cy="12" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/><circle cx="18.5" cy="12" r="1.3" fill="currentColor"/>',
   rename: '<path d="M14.5 5.5l4 4M4 20l1-4.5L15.8 4.7a1.8 1.8 0 0 1 2.5 0l1 1a1.8 1.8 0 0 1 0 2.5L8.5 19z"/>',
+  heart: '<path d="M12 20s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.2a4.3 4.3 0 0 1 7.5 2.6C19.5 15.4 12 20 12 20z"/>',
+  heartFill: '<path fill="currentColor" d="M12 20s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.2a4.3 4.3 0 0 1 7.5 2.6C19.5 15.4 12 20 12 20z"/>',
   restore: '<path d="M4 12a8 8 0 1 0 2.4-5.7M4 4.5v3.8h3.8"/><path d="M12 8v4.2l2.8 1.8"/>',
   move: '<path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H9l2 2.2h7.5A2.5 2.5 0 0 1 21 9.7v7.8a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5z"/><path d="M9 13.5h6M12.5 11l2.5 2.5-2.5 2.5"/>',
 };
 
 // File types, as catalogued by the server (app/kinds.py).
-const KIND_ICONS = { image: "photos", video: "video", audio: "audio", document: "document", archive: "archive", other: "file" };
-const KIND_FILTERS = ["all", "image", "video", "audio", "document", "archive", "other"];
+const KIND_ICONS = {
+  favorite: "heart", image: "photos", video: "video", audio: "audio", document: "document", archive: "archive", other: "file",
+};
+const KIND_FILTERS = ["all", "favorite", "image", "video", "audio", "document", "archive", "other"];
+const GALLERY_FILTERS = ["all", "favorite"];
 
 function icon(name) {
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${ICON_PATHS[name] || ""}</svg>`;
@@ -134,13 +139,17 @@ async function renderGallery() {
   } catch (err) {
     return showEmpty(t("photosLoadError"), err.message);
   }
+  renderChips(GALLERY_FILTERS);
+  if (state.kind === "favorite") items = items.filter((i) => i.fav);
   state.items = items;
   const photos = items.filter((i) => i.kind === "image").length;
   const videos = items.length - photos;
   setHeader($("title").textContent,
     [where, t("photoCount", { n: photos }), videos ? t("videoCount", { n: videos }) : ""].filter(Boolean).join(" · "));
   if (!items.length) {
-    return showEmpty(t("noPhotosTitle"), t("noPhotosText"));
+    return state.kind === "favorite"
+      ? showEmpty(t("noFavTitle"), t("noFavText"))
+      : showEmpty(t("noPhotosTitle"), t("noPhotosText"));
   }
 
   const gallery = $("gallery");
@@ -174,6 +183,11 @@ function tile(item, index) {
     badge.append(iconEl("play"));
     node.append(badge);
   }
+  if (item.fav) {
+    const heart = el("span", "fav-badge");
+    heart.append(iconEl("heartFill"));
+    node.append(heart);
+  }
   node.onclick = () => openViewer(index);
   return node;
 }
@@ -190,32 +204,42 @@ async function renderFiles() {
   try {
     ({ entries } = state.kind === "all"
       ? await api(`api/files?${qs({ space: state.space, path: state.path })}`)
-      : await api(`api/files/by-kind?${qs({ space: state.space, kind: state.kind })}`));
+      : state.kind === "favorite"
+        ? await api(`api/favorites?${qs({ space: state.space })}`)
+        : await api(`api/files/by-kind?${qs({ space: state.space, kind: state.kind })}`));
   } catch (err) {
     return showEmpty(t("folderOpenError"), err.message);
   }
   for (const e of entries) e.path = e.path || join(state.path, e.name);
   // The viewer browses the photos and videos of this list.
   state.items = entries.filter((e) => !e.is_dir && kindOf(e.name))
-    .map((e) => ({ path: e.path, name: e.name, kind: kindOf(e.name), taken: e.modified, v: e.v }));
+    .map((e) => ({ path: e.path, name: e.name, kind: kindOf(e.name), taken: e.modified, v: e.v, fav: e.fav }));
   if (!entries.length) {
     return state.kind === "all"
       ? showEmpty(t("emptyFolderTitle"), t("emptyFolderText"))
-      : showEmpty(t("noKindTitle"), t("noKindText"));
+      : state.kind === "favorite"
+        ? showEmpty(t("noFavTitle"), t("noFavText"))
+        : showEmpty(t("noKindTitle"), t("noKindText"));
   }
   const list = $("files");
   for (const entry of entries) list.append(fileRow(entry));
 }
 
-function renderChips() {
+function renderChips(filters = KIND_FILTERS) {
   const chips = $("chips");
-  for (const kind of KIND_FILTERS) {
+  for (const kind of filters) {
     const chip = el("button", kind === state.kind ? "chip active" : "chip");
     if (kind !== "all") chip.append(iconEl(KIND_ICONS[kind]));
-    chip.append(el("span", "", t(`kind_${kind}`)));
-    chip.onclick = () => go(state.space, "files", kind === "all" ? state.path : "", kind);
+    // In the gallery "All" means all photos and videos.
+    chip.append(el("span", "", t(kind === "all" && state.view === "photos" ? "allMedia" : `kind_${kind}`)));
+    chip.onclick = () => go(state.space, state.view, kind === "all" ? state.path : "", kind);
     chips.append(chip);
   }
+}
+
+async function toggleFavorite(item) {
+  await post("api/favorites", { space: state.space, path: item.path, favorite: item.fav ? "0" : "1" });
+  item.fav = !item.fav;
 }
 
 function renderCrumbs(root) {
@@ -261,7 +285,9 @@ function fileRow(entry) {
   onLongPress(row, (x, y) => openMenu(entry, { left: x, right: x, top: y, bottom: y }));
 
   const name = el("div", "name");
-  name.append(el("div", "", entry.name));
+  const title = el("div", "", entry.name);
+  if (entry.fav) title.prepend(Object.assign(iconEl("heartFill"), { className: "fav-mark" }));
+  name.append(title);
   entry.nameEl = name;
   if (state.kind !== "all") {
     // Catalogue view: say which folder the file is in.
@@ -545,6 +571,10 @@ function openMenu(entry, rect) {
     b.onclick = () => { closeMenu(); action(); };
     menu.append(b);
   };
+  item(entry.fav ? "heartFill" : "heart", t(entry.fav ? "unfavorite" : "favorite"), async () => {
+    await toggleFavorite(entry);
+    render();
+  });
   item("rename", t("rename"), () => renameItem(entry));
   item("move", t("moveTo"), () => openMoveDialog(entry));
   if (!entry.is_dir) item("download", t("download"), () => { location.href = fileUrl(entry.path); });
@@ -626,7 +656,10 @@ function openViewer(index) {
   showViewerItem();
 }
 
+let viewerChanged = false;  // favorites toggled in the viewer: refresh the list on close
+
 function closeViewer() {
+  if (viewerChanged) { viewerChanged = false; render(); }
   $("viewer").hidden = true;
   $("v-stage").innerHTML = "";
   document.body.style.overflow = "";
@@ -659,6 +692,7 @@ function showViewerItem() {
   $("v-date").textContent = `${dayFmt.format(date)} · ${timeFmt.format(date)}`;
   $("v-name").textContent = item.name;
   $("v-download").href = fileUrl(item.path);
+  paintFavButton(item);
   $("v-prev").hidden = state.viewerIndex === 0;
   $("v-next").hidden = state.viewerIndex === state.items.length - 1;
 }
@@ -673,6 +707,24 @@ function step(delta) {
 $("v-close").onclick = closeViewer;
 $("v-prev").onclick = () => step(-1);
 $("v-next").onclick = () => step(1);
+function paintFavButton(item) {
+  const button = $("v-fav");
+  button.replaceChildren(iconEl(item.fav ? "heartFill" : "heart"));
+  button.title = t(item.fav ? "unfavorite" : "favorite");
+  button.classList.toggle("on", !!item.fav);
+}
+
+$("v-fav").onclick = async () => {
+  const item = state.items[state.viewerIndex];
+  try {
+    await toggleFavorite(item);
+    viewerChanged = true;
+    paintFavButton(item);
+  } catch (err) {
+    alert(err.message);
+  }
+};
+
 $("v-rename").onclick = () => {
   const item = state.items[state.viewerIndex];
   inlineRename($("v-name"), { name: item.name, is_dir: false }, async (name) => {
@@ -696,6 +748,7 @@ document.addEventListener("keydown", (e) => {
   if ($("viewer").hidden) return;
   if (e.key === "Escape") closeViewer();
   if (e.key === "ArrowLeft") step(-1);
+  if (e.key === ".") $("v-fav").click();  // same shortcut as Apple Photos
   if (e.key === "ArrowRight") step(1);
 });
 let touchX = null;

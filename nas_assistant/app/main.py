@@ -7,12 +7,12 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import disks, media, storage
+from . import disks, favorites, media, storage
 from .auth import User, admin_user, current_user
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
-app = FastAPI(title="NAS Assistant", version="0.7.3")
+app = FastAPI(title="NAS Assistant", version="0.8.0")
 
 # Small boards: decode at most two big images at once. Waiting requests queue
 # here, outside the worker threads, so uploads and browsing never stall behind them.
@@ -64,29 +64,58 @@ async def format_disk(request: Request, user: User = Depends(admin_user)):
 
 @app.get("/api/files")
 async def list_files(space: str = "personal", path: str = "", user: User = Depends(current_user)):
-    return {"space": space, "path": path, "entries": storage.list_dir(user, space, path)}
+    entries = storage.list_dir(user, space, path)
+    favs = favorites.paths(user, space)
+    for entry in entries:
+        entry["fav"] = os.path.normpath(os.path.join(path.strip("/"), entry["name"])) in favs
+    return {"space": space, "path": path, "entries": entries}
 
 
 @app.get("/api/files/by-kind")
 def files_by_kind(space: str, kind: str, user: User = Depends(current_user)):
-    return {"space": space, "kind": kind, "entries": storage.files_by_kind(user, space, kind)}
+    entries = storage.files_by_kind(user, space, kind)
+    favs = favorites.paths(user, space)
+    for entry in entries:
+        entry["fav"] = entry["path"] in favs
+    return {"space": space, "kind": kind, "entries": entries}
+
+
+@app.get("/api/favorites")
+def list_favorites(space: str = "personal", user: User = Depends(current_user)):
+    return {"space": space, "entries": favorites.listing(user, space)}
+
+
+@app.post("/api/favorites")
+async def set_favorite(request: Request, user: User = Depends(current_user)):
+    """Body: space, path, favorite ("1" to add, "0" to remove)."""
+    space, path, on = await _fields(request, "space", "path", "favorite")
+    favorites.set_favorite(user, space, path, on in ("1", "true"))
+    return {"ok": True}
 
 
 @app.post("/api/rename")
 async def rename(request: Request, user: User = Depends(current_user)):
     space, path, name = await _fields(request, "space", "path", "name")
-    return storage.rename(user, space, path, name)
+    result = storage.rename(user, space, path, name)
+    favorites.moved(user, space, path, space, os.path.join(os.path.dirname(path.strip("/")), result["name"]))
+    return result
 
 
 @app.post("/api/move")
 async def move(request: Request, user: User = Depends(current_user)):
     space, path, to_space, to_path = await _fields(request, "space", "path", "to_space", "to_path", optional=("to_path",))
-    return await run_in_threadpool(storage.move, user, space, path, to_space, to_path)
+    result = await run_in_threadpool(storage.move, user, space, path, to_space, to_path)
+    favorites.moved(user, space, path, to_space, result["path"])
+    return result
 
 
 @app.get("/api/photos")
 def photos(space: str = "personal", user: User = Depends(current_user)):
-    return {"space": space, "items": media.gallery(user, space)}
+    items = media.gallery(user, space)
+    favs = favorites.paths(user, space)
+    for item in items:
+        item["fav"] = item["path"] in favs
+    return {"space": space, "items": items}
 
 
 @app.get("/api/thumb")
@@ -193,7 +222,9 @@ async def download(space: str, path: str, inline: bool = False, user: User = Dep
 
 @app.delete("/api/files")
 async def delete(space: str, path: str, user: User = Depends(current_user)):
-    return {"id": storage.move_to_trash(user, space, path)}
+    item_id = storage.move_to_trash(user, space, path)
+    favorites.removed(user, space, path)
+    return {"id": item_id}
 
 
 # The web UI must never be kept by proxies such as Cloudflare (which otherwise

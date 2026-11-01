@@ -10,6 +10,7 @@ plus a folder shared with the whole family, on a dedicated disk of your choice.
 - 🔒 A private space for every HA user, no new accounts
 - 🖼️ Apple-style photo and video gallery: monthly timeline, full-screen viewer, iPhone HEIC photos
 - 👨‍👩‍👧 Shared Family folder
+- ❤️ Favorites for photos, videos, files and folders
 - 🗂️ Files catalogued by type (photos, videos, music, documents, archives); rename and move with a menu or drag and drop
 - ♻️ Recently deleted: undo, restore to the original folder, or delete forever
 - 💽 Dedicated disk, any size: HA backups stay on the main disk

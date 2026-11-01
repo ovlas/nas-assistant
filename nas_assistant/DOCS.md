@@ -44,6 +44,9 @@ If it is missing, NAS Assistant writes nothing to the main disk.
   the name becomes editable in place with the extension left out of the selection. Enter saves, Esc cancels.
 - **Move** from the same menu, or drag a file onto a folder or onto the path at the top. Moving works between
   My space and Family too, and is instant: nothing is copied.
+- **Favorites**: tap the heart in the photo viewer (or press `.`), or choose **Add to Favorites** from the ⋯ menu
+  of any file or folder. The **Favorites** filter in Photos and in Files lists them. Favorites are personal, also in
+  Family, and follow items when they are renamed or moved.
 - **Recently deleted**: deleted items go here, with **Undo** right after deleting. From there you can **Restore** an item
   to where it was (its folders are recreated if needed) or **Delete forever**, one item or the whole trash.
   Items are erased for good after 30 days; change it with the `trash_days` option (0 = never).
