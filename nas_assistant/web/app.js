@@ -25,6 +25,7 @@ const ICON_PATHS = {
   archive: '<rect x="3.5" y="4" width="17" height="5" rx="1.5"/><path d="M5 9v9.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V9M10 13h4"/>',
   more: '<circle cx="5.5" cy="12" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/><circle cx="18.5" cy="12" r="1.3" fill="currentColor"/>',
   rename: '<path d="M14.5 5.5l4 4M4 20l1-4.5L15.8 4.7a1.8 1.8 0 0 1 2.5 0l1 1a1.8 1.8 0 0 1 0 2.5L8.5 19z"/>',
+  restore: '<path d="M4 12a8 8 0 1 0 2.4-5.7M4 4.5v3.8h3.8"/><path d="M12 8v4.2l2.8 1.8"/>',
   move: '<path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H9l2 2.2h7.5A2.5 2.5 0 0 1 21 9.7v7.8a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5z"/><path d="M9 13.5h6M12.5 11l2.5 2.5-2.5 2.5"/>',
 };
 
@@ -103,6 +104,8 @@ function setHeader(title, subtitle) {
   $("title").textContent = title;
   $("subtitle").textContent = subtitle;
   $("new-folder").hidden = state.view !== "files";
+  $("upload-btn").hidden = state.view === "trash";
+  $("empty-trash").hidden = true;
 }
 
 function showEmpty(title, text) {
@@ -116,6 +119,7 @@ function render() {
   $("crumbs").innerHTML = "";
   $("chips").innerHTML = "";
   showEmpty(null);
+  if (state.view === "trash") return renderTrash();
   return state.view === "photos" ? renderGallery() : renderFiles();
 }
 
@@ -254,9 +258,11 @@ function fileRow(entry) {
     e.preventDefault();
     openMenu(entry, { left: e.clientX, right: e.clientX, top: e.clientY, bottom: e.clientY });
   };
+  onLongPress(row, (x, y) => openMenu(entry, { left: x, right: x, top: y, bottom: y }));
 
   const name = el("div", "name");
   name.append(el("div", "", entry.name));
+  entry.nameEl = name;
   if (state.kind !== "all") {
     // Catalogue view: say which folder the file is in.
     const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : t(state.space === "personal" ? "files" : "sharedFiles");
@@ -285,9 +291,129 @@ function fileRow(entry) {
   return row;
 }
 
+// Deleting is safe: items go to Recently deleted, and the snack bar offers Undo.
 async function removeItem(path) {
-  await api(`api/files?${qs({ space: state.space, path })}`, { method: "DELETE" });
+  const { id } = await api(`api/files?${qs({ space: state.space, path })}`, { method: "DELETE" });
   loadStatus();
+  snack(t("movedToTrash", { name: path.split("/").pop() }), t("undo"), async () => {
+    await post("api/trash/restore", { id });
+    if ($("viewer").hidden) render();
+    loadStatus();
+  });
+}
+
+let snackTimer;
+function snack(text, actionLabel, action) {
+  clearTimeout(snackTimer);
+  $("snack-text").textContent = text;
+  const button = $("snack-action");
+  button.hidden = !action;
+  button.textContent = actionLabel || "";
+  button.onclick = async () => {
+    $("snack").hidden = true;
+    try { await action(); } catch (err) { alert(err.message); }
+  };
+  $("snack").hidden = false;
+  snackTimer = setTimeout(() => { $("snack").hidden = true; }, 6000);
+}
+
+// Touch screens have no right click: a long press opens the same menu.
+function onLongPress(node, callback) {
+  let timer = null;
+  let fired = false;
+  node.addEventListener("touchstart", (e) => {
+    fired = false;
+    const { clientX, clientY } = e.touches[0];
+    timer = setTimeout(() => { fired = true; callback(clientX, clientY); }, 550);
+  }, { passive: true });
+  const cancel = () => clearTimeout(timer);
+  node.addEventListener("touchmove", cancel, { passive: true });
+  node.addEventListener("touchend", (e) => {
+    cancel();
+    if (fired) e.preventDefault();  // no click after a long press
+  });
+}
+
+// --- Recently deleted ---------------------------------------------------------
+
+async function renderTrash() {
+  setHeader(t("recentlyDeleted"), "");
+  let items, days;
+  try {
+    ({ items, days } = await api("api/trash"));
+  } catch (err) {
+    return showEmpty(t("trashLoadError"), err.message);
+  }
+  $("subtitle").textContent = days ? t("trashNote", { n: days }) : t("trashNoteForever");
+  $("empty-trash").hidden = !items.length;
+  $("empty-trash").onclick = async () => {
+    if (!confirm(t("confirmEmptyTrash", { n: items.length }))) return;
+    await api("api/trash?all=1", { method: "DELETE" });
+    render();
+    loadStatus();
+  };
+  if (!items.length) return showEmpty(t("trashEmptyTitle"), t("trashEmptyText"));
+  const list = $("files");
+  for (const item of items) list.append(trashRow(item));
+}
+
+function trashRow(item) {
+  const row = el("div", "row trash-row");
+  const thumb = el("div", item.is_dir ? "thumb folder" : "thumb");
+  const fallback = iconEl(item.is_dir ? "folder" : KIND_ICONS[item.kind] || "file");
+  if (item.kind === "image" || item.kind === "video") {
+    const img = el("img");
+    img.loading = "lazy";
+    img.src = `api/trash/thumb?${qs({ id: item.id, v: item.v })}`;
+    img.onerror = () => thumb.replaceChildren(fallback);
+    thumb.append(img);
+  } else {
+    thumb.append(fallback);
+  }
+
+  const folder = item.path.includes("/") ? item.path.slice(0, item.path.lastIndexOf("/")) : "";
+  const origin = [t(item.space === "family" ? "sharedFiles" : "files"), ...(folder ? folder.split("/") : [])].join(" › ");
+  const name = el("div", "name");
+  name.append(el("div", "", item.name), el("div", "where", t("deletedFrom", { place: origin })));
+
+  const left = item.expires ? Math.max(1, Math.ceil((item.expires * 1000 - Date.now()) / 86400000)) : null;
+  const actions = el("div", "row-actions");
+  const back = el("button", "btn small");
+  back.append(iconEl("restore"), el("span", "", t("restore")));
+  back.onclick = async (e) => {
+    e.stopPropagation();
+    try {
+      const where = await post("api/trash/restore", { id: item.id });
+      snack(t("restored", { name: item.name }), t("show"), async () => {
+        const parent = where.path.includes("/") ? where.path.slice(0, where.path.lastIndexOf("/")) : "";
+        go(where.space, "files", parent);
+      });
+    } catch (err) {
+      alert(err.message);
+    }
+    render();
+    loadStatus();
+  };
+  const del = el("button", "icon-btn danger-icon");
+  del.title = t("deleteForever");
+  del.append(iconEl("trash"));
+  del.onclick = async (e) => {
+    e.stopPropagation();
+    if (!confirm(t("confirmDeleteForever", { name: item.name }))) return;
+    await api(`api/trash?${qs({ id: item.id })}`, { method: "DELETE" });
+    render();
+    loadStatus();
+  };
+  actions.append(back, del);
+
+  row.append(
+    thumb,
+    name,
+    el("div", "meta", shortFmt.format(item.deleted * 1000)),
+    el("div", "meta", left ? t("daysLeft", { n: left }) : item.is_dir ? "—" : formatSize(item.size)),
+    actions,
+  );
+  return row;
 }
 
 const post = (url, fields) => {
@@ -329,15 +455,81 @@ async function moveItem(space, path, toSpace, toPath) {
   render();
 }
 
-async function renameItem(entry) {
-  const name = prompt(t("renamePrompt"), entry.name);
-  if (!name || name === entry.name) return;
-  try {
+function renameItem(entry) {
+  inlineRename(entry.nameEl, entry, async (name) => {
     await post("api/rename", { space: state.space, path: entry.path, name });
-  } catch (err) {
-    alert(err.message);
+    render();
+  });
+}
+
+const extOf = (name) => {
+  const dot = name.lastIndexOf(".");
+  return dot > 0 ? name.slice(dot) : "";
+};
+
+// Rename in place, like the Finder: the name turns into a text field with the
+// name selected (not the extension). Enter or clicking away saves, Esc cancels.
+function inlineRename(host, entry, save) {
+  const before = [...host.childNodes];
+  const input = el("input", "rename-input");
+  const error = el("div", "rename-error");
+  input.value = entry.name;
+  input.spellcheck = false;
+  input.autocapitalize = "off";
+  host.replaceChildren(input, error);
+  for (const type of ["click", "dblclick", "mousedown", "touchstart", "contextmenu"]) {
+    input.addEventListener(type, (e) => e.stopPropagation());
   }
-  render();
+  const row = host.closest(".row");
+  if (row) { row.draggable = false; row.classList.add("editing"); }
+  input.focus();
+  const ext = entry.is_dir ? "" : extOf(entry.name);
+  input.setSelectionRange(0, entry.name.length - ext.length);
+
+  let busy = false;
+  let finished = false;
+  let failedValue = null;
+  const finish = () => {
+    finished = true;
+    if (row) { row.draggable = true; row.classList.remove("editing"); }
+    host.replaceChildren(...before);
+  };
+  const fail = (message) => {
+    busy = false;
+    failedValue = input.value;
+    error.textContent = message;
+    input.classList.add("invalid");
+    input.focus();
+  };
+
+  async function commit() {
+    if (busy || finished) return;
+    let name = input.value.trim();
+    if (!name || name === entry.name) return finish();
+    if (/[\/\\]/.test(name) || name.startsWith(".")) return fail(t("badName"));
+    busy = true;
+    const newExt = extOf(name);
+    if (ext && newExt.toLowerCase() !== ext.toLowerCase()
+        && !confirm(t("changeExt", { old: ext, ext: newExt || t("noExt") }))) {
+      name = name.slice(0, name.length - newExt.length) + ext;  // keep the old extension
+      input.value = name;
+    }
+    try {
+      await save(name);
+      finished = true;
+    } catch (err) {
+      fail(err.message);
+    }
+  }
+
+  input.addEventListener("keydown", (e) => {
+    e.stopPropagation();
+    if (e.key === "Enter") { e.preventDefault(); commit(); }
+    if (e.key === "Escape") { e.preventDefault(); finish(); }
+  });
+  input.addEventListener("input", () => { error.textContent = ""; input.classList.remove("invalid"); });
+  // Clicking away saves; if that name was already refused, clicking away cancels.
+  input.addEventListener("blur", () => (input.value === failedValue ? finish() : commit()));
 }
 
 function closeMenu() {
@@ -357,7 +549,6 @@ function openMenu(entry, rect) {
   item("move", t("moveTo"), () => openMoveDialog(entry));
   if (!entry.is_dir) item("download", t("download"), () => { location.href = fileUrl(entry.path); });
   item("trash", t("moveToTrash"), async () => {
-    if (!confirm(t("confirmTrash", { name: entry.name }))) return;
     await removeItem(entry.path);
     render();
   }, true);
@@ -482,9 +673,19 @@ function step(delta) {
 $("v-close").onclick = closeViewer;
 $("v-prev").onclick = () => step(-1);
 $("v-next").onclick = () => step(1);
+$("v-rename").onclick = () => {
+  const item = state.items[state.viewerIndex];
+  inlineRename($("v-name"), { name: item.name, is_dir: false }, async (name) => {
+    const { name: saved } = await post("api/rename", { space: state.space, path: item.path, name });
+    const folder = item.path.includes("/") ? item.path.slice(0, item.path.lastIndexOf("/") + 1) : "";
+    Object.assign(item, { name: saved, path: folder + saved });
+    showViewerItem();
+    render();
+  });
+};
+$("v-name").onclick = () => $("v-rename").click();
 $("v-delete").onclick = async () => {
   const item = state.items[state.viewerIndex];
-  if (!confirm(t("confirmTrash", { name: item.name }))) return;
   await removeItem(item.path);
   state.items.splice(state.viewerIndex, 1);
   if (state.viewerIndex >= state.items.length) state.viewerIndex--;
@@ -595,7 +796,7 @@ async function upload(files) {
 
 $("file-input").onchange = (e) => { upload([...e.target.files]); e.target.value = ""; };
 const main = $("main");
-const draggingFiles = (e) => e.dataTransfer.types.includes("Files");
+const draggingFiles = (e) => e.dataTransfer.types.includes("Files") && state.view !== "trash";
 main.ondragover = (e) => {
   if (!draggingFiles(e)) return;
   e.preventDefault();

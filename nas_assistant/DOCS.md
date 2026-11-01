@@ -40,9 +40,14 @@ If it is missing, NAS Assistant writes nothing to the main disk.
   if the connection drops.
 - **Filter by type** in Files: Photos, Videos, Music, Documents, Archives, Other. Each filter lists the files of that
   type from the whole space, with the folder they are in.
-- **Rename and move** from the ⋯ menu of each file or folder (or right-click). You can also drag a file onto a folder
-  or onto the path at the top. Moving works between My space and Family too, and is instant: nothing is copied.
-- Deleted items go to a trash folder on the disk (`.trash/`), they are not erased right away.
+- **Rename** from the ⋯ menu (right-click on a computer, long press on a phone), or with the pencil in the photo viewer:
+  the name becomes editable in place with the extension left out of the selection. Enter saves, Esc cancels.
+- **Move** from the same menu, or drag a file onto a folder or onto the path at the top. Moving works between
+  My space and Family too, and is instant: nothing is copied.
+- **Recently deleted**: deleted items go here, with **Undo** right after deleting. From there you can **Restore** an item
+  to where it was (its folders are recreated if needed) or **Delete forever**, one item or the whole trash.
+  Items are erased for good after 30 days; change it with the `trash_days` option (0 = never).
+  Each person has their own Recently deleted, also for items deleted from Family.
 
 Each family member just needs a Home Assistant user: there are no other accounts.
 Home Assistant admins cannot browse other users' private files from the interface.
@@ -63,6 +68,7 @@ family/                           shared with everyone
 | `device` | Partition of the NAS disk. Recommended, works with protection mode on. |
 | `disk` | UUID or label of the NAS disk (advanced). |
 | `family_folder_name` | Name of the shared folder. |
+| `trash_days` | Days an item stays in Recently deleted before it is erased for good (0 = never). |
 | `log_level` | Log detail. |
 
 Port `8456` is used by the mobile apps (coming soon) on your home network or through Tailscale.

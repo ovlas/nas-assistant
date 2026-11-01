@@ -8,6 +8,9 @@ configuration:
   family_folder_name:
     name: Name des geteilten Ordners
     description: Name des Ordners, der mit der ganzen Familie geteilt wird.
+  trash_days:
+    name: "Tage in „Zuletzt gelöscht“"
+    description: "Gelöschte Objekte werden nach so vielen Tagen endgültig entfernt. 0 behält sie, bis du den Papierkorb leerst."
   log_level:
     name: Protokollstufe
     description: Wie ausführlich das Add-on protokolliert.

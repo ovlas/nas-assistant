@@ -12,6 +12,7 @@ fi
 export NAS_ROOT=/nas
 export NAS_FAMILY_NAME="$(bashio::config 'family_folder_name')"
 export NAS_LOG_LEVEL="$(bashio::config 'log_level')"
+export NAS_TRASH_DAYS="$(bashio::config 'trash_days')"
 mkdir -p "${NAS_ROOT}"
 
 if bashio::var.has_value "${DEVICE_OPTION}" || bashio::var.has_value "${DISK}"; then

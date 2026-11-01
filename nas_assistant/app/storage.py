@@ -3,9 +3,12 @@
 Layout under NAS_ROOT:
     users/<ha_user_id>/    private space of each user
     family/                shared with every user
-    .trash/<ha_user_id>/   deleted items, per user
+    .trash/<ha_user_id>/   deleted items, per user ("Recently deleted")
+        <id>/<name>           the item itself
+        <id>/.nas_trash.json  where it came from and when it was deleted
 """
 
+import json
 import os
 import re
 import shutil
@@ -23,6 +26,9 @@ NAS_ROOT = disks.NAS_ROOT
 CHUNK = 1024 * 1024
 SPACES = ("personal", "family")
 _SAFE_ID = re.compile(r"^[A-Za-z0-9_-]+$")
+TRASH_INFO = ".nas_trash.json"
+# Items older than this are deleted for good; 0 keeps them until the trash is emptied.
+TRASH_DAYS = int(os.environ.get("NAS_TRASH_DAYS", "30"))
 
 
 def _require_disk() -> None:
@@ -169,15 +175,144 @@ def move(user: User, space: str, rel_path: str, to_space: str, to_path: str) -> 
     return {"path": str(dst.relative_to(_space_root(user, to_space).resolve()))}
 
 
-def move_to_trash(user: User, space: str, rel_path: str) -> None:
+# --- Trash ("Recently deleted") ---------------------------------------------
+
+def _trash_root(user: User) -> Path:
+    _require_disk()
+    if not _SAFE_ID.match(user.id):
+        raise HTTPException(400, "Invalid user ID")
+    root = NAS_ROOT / ".trash" / user.id
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def move_to_trash(user: User, space: str, rel_path: str) -> str:
+    """Move an item to Recently deleted; returns its trash id (for undo)."""
     target = resolve(user, space, rel_path)
-    if target == _space_root(user, space).resolve():
+    root = _space_root(user, space).resolve()
+    if target == root:
         raise HTTPException(400, "Can't delete the root folder")
     if not target.exists():
         raise HTTPException(404, "Not found")
-    trash = NAS_ROOT / ".trash" / user.id
-    trash.mkdir(parents=True, exist_ok=True)
-    shutil.move(str(target), str(trash / f"{int(time.time())}_{target.name}"))
+    slot = _trash_root(user) / str(time.time_ns())
+    slot.mkdir()
+    shutil.move(str(target), str(slot / target.name))  # same disk: instant
+    (slot / TRASH_INFO).write_text(json.dumps({
+        "name": target.name,
+        "space": space,
+        "path": str(target.relative_to(root)),
+        "deleted": int(time.time()),
+    }))
+    return slot.name
+
+
+def _trash_item(user: User, item_id: str) -> Path:
+    trash = _trash_root(user)
+    slot = trash / item_id
+    if item_id.startswith(".") or slot.resolve().parent != trash.resolve() or not slot.exists():
+        raise HTTPException(404, "Not found")
+    return slot
+
+
+def _trash_info(slot: Path) -> dict:
+    """What a trash entry holds. Entries made before 0.7 are plain "<time>_<name>" files."""
+    info_file = slot / TRASH_INFO
+    if slot.is_dir() and info_file.is_file():
+        info = json.loads(info_file.read_text())
+        info["item"] = slot / info["name"]
+        return info
+    stamp, _, name = slot.name.partition("_")
+    return {
+        "name": name or slot.name,
+        "space": "personal",
+        "path": name or slot.name,
+        "deleted": int(stamp) if stamp.isdigit() else int(slot.stat().st_mtime),
+        "item": slot,
+    }
+
+
+def _size(path: Path) -> int:
+    if path.is_file():
+        return path.stat().st_size
+    return sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
+
+
+def _erase(slot: Path) -> None:
+    if slot.is_dir():
+        shutil.rmtree(slot)
+    else:
+        slot.unlink()
+
+
+def list_trash(user: User) -> List[dict]:
+    items = []
+    expired = time.time() - TRASH_DAYS * 86400
+    for slot in _trash_root(user).iterdir():
+        if slot.name.startswith("."):
+            continue
+        info = _trash_info(slot)
+        if TRASH_DAYS and info["deleted"] < expired:
+            _erase(slot)
+            continue
+        item = info["item"]
+        if not item.exists():
+            continue
+        is_dir = item.is_dir()
+        items.append({
+            "id": slot.name,
+            "name": info["name"],
+            "space": info["space"],
+            "path": info["path"],
+            "deleted": info["deleted"],
+            "expires": info["deleted"] + TRASH_DAYS * 86400 if TRASH_DAYS else None,
+            "is_dir": is_dir,
+            "size": _size(item),
+            "kind": None if is_dir else kind_of(info["name"]),
+            "v": item.stat().st_mtime_ns,
+        })
+    items.sort(key=lambda i: i["deleted"], reverse=True)
+    return items
+
+
+def trash_file(user: User, item_id: str) -> Path:
+    """The deleted file itself, for thumbnails."""
+    return _trash_info(_trash_item(user, item_id))["item"]
+
+
+def _free_name(folder: Path, name: str) -> Path:
+    """name, or "name (2).ext", "name (3).ext"… if it is taken."""
+    target = folder / name
+    stem, ext = os.path.splitext(name) if not name.startswith(".") else (name, "")
+    n = 2
+    while target.exists():
+        target = folder / f"{stem} ({n}){ext}"
+        n += 1
+    return target
+
+
+def restore(user: User, item_id: str) -> dict:
+    """Put an item back where it was, recreating its folders if needed."""
+    slot = _trash_item(user, item_id)
+    info = _trash_info(slot)
+    space = info["space"] if info["space"] in SPACES else "personal"
+    parent = os.path.dirname(info["path"])
+    folder = resolve(user, space, parent)
+    folder.mkdir(parents=True, exist_ok=True)
+    target = _free_name(folder, info["name"])
+    shutil.move(str(info["item"]), str(target))
+    if slot.exists():
+        _erase(slot)
+    return {"space": space, "path": str(target.relative_to(_space_root(user, space).resolve()))}
+
+
+def delete_forever(user: User, item_id: str) -> None:
+    _erase(_trash_item(user, item_id))
+
+
+def empty_trash(user: User) -> None:
+    for slot in _trash_root(user).iterdir():
+        if not slot.name.startswith("."):
+            _erase(slot)
 
 
 def usage() -> dict:

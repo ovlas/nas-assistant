@@ -8,6 +8,9 @@ configuration:
   family_folder_name:
     name: Nombre de la carpeta compartida
     description: Nombre de la carpeta compartida con toda la familia.
+  trash_days:
+    name: "Días en Eliminado recientemente"
+    description: "Los elementos eliminados se borran para siempre tras estos días. 0 los guarda hasta que vacíes la papelera."
   log_level:
     name: Nivel de registro
     description: Cuánto detalle escribe el complemento en su registro.

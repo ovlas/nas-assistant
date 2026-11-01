@@ -12,7 +12,7 @@ from .auth import User, admin_user, current_user
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
-app = FastAPI(title="NAS Assistant", version="0.6.0")
+app = FastAPI(title="NAS Assistant", version="0.7.0")
 
 # Small boards: decode at most two big images at once. Waiting requests queue
 # here, outside the worker threads, so uploads and browsing never stall behind them.
@@ -147,6 +147,40 @@ async def upload_chunk(
     return {"name": target.name, "size": target.stat().st_size}
 
 
+@app.get("/api/trash")
+def trash(user: User = Depends(current_user)):
+    return {"items": storage.list_trash(user), "days": storage.TRASH_DAYS}
+
+
+@app.get("/api/trash/thumb")
+async def trash_thumb(id: str, size: str = "s", user: User = Depends(current_user)):
+    src = storage.trash_file(user, id)
+    out = media.thumb_path(src, size)
+    if not out.exists():
+        async with _thumb_slots:
+            await run_in_threadpool(media.make_thumbnail, src, size, out)
+    return FileResponse(out, media_type="image/webp",
+                        headers={"Cache-Control": "private, max-age=31536000, immutable"})
+
+
+@app.post("/api/trash/restore")
+async def restore(request: Request, user: User = Depends(current_user)):
+    (item_id,) = await _fields(request, "id")
+    return await run_in_threadpool(storage.restore, user, item_id)
+
+
+@app.delete("/api/trash")
+def delete_forever(id: str = "", all: bool = False, user: User = Depends(current_user)):
+    """Delete one item for good, or empty the whole trash with all=1."""
+    if all:
+        storage.empty_trash(user)
+    elif id:
+        storage.delete_forever(user, id)
+    else:
+        raise HTTPException(422, "Required fields: id")
+    return {"ok": True}
+
+
 @app.get("/api/download")
 async def download(space: str, path: str, inline: bool = False, user: User = Depends(current_user)):
     target = storage.resolve(user, space, path)
@@ -159,8 +193,7 @@ async def download(space: str, path: str, inline: bool = False, user: User = Dep
 
 @app.delete("/api/files")
 async def delete(space: str, path: str, user: User = Depends(current_user)):
-    storage.move_to_trash(user, space, path)
-    return {"ok": True}
+    return {"id": storage.move_to_trash(user, space, path)}
 
 
 app.mount("/", StaticFiles(directory=WEB_DIR, html=True), name="web")
