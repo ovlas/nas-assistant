@@ -98,6 +98,8 @@ App options: "Wi-Fi only", "only while charging", "only at home".
 - [x] Photo/video thumbnails (Pillow + HEIC, ffmpeg) and timeline gallery
 - [x] Resumable chunked uploads
 - [x] Catalogue by file type, rename, move (also between My space and Family)
+- [x] Backup to a second disk: nightly incremental copy with versions
+- [x] Files as list, icons or grid; Home Assistant profile picture
 - [x] iCloud-style welcome page
 - [x] Favorites for files, folders, photos and videos
 - [x] Recently deleted with restore, delete forever and undo; inline rename
@@ -115,4 +117,4 @@ App options: "Wi-Fi only", "only while charging", "only at home".
 - [ ] Local face and object recognition
 - [ ] Per-user encryption
 - [ ] SMB/WebDAV access for Mac/PC
-- [ ] Backup of the NAS disk to a second disk or remote site
+- [ ] Backup to a remote site; browse and restore backups from the web UI

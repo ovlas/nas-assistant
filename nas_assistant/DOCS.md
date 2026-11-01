@@ -31,12 +31,28 @@ Only if you want a blank disk, use **Erase everything and format** and type the 
 Supported filesystems: ext4, exFAT, NTFS. The disk is mounted again at every restart.
 If it is missing, NAS Assistant writes nothing to the main disk.
 
+## Backup to a second disk
+
+Plug in a second disk and pick its partition in **Backup disk** (Configuration tab), then save and restart.
+The Backup card on the Home page unlocks:
+
+- Every night at **Backup time** (default 03:00) the NAS disk is copied to the backup disk. Only what changed is copied.
+  If Home Assistant was off at that time, the backup runs a few minutes after the add-on starts.
+- Nothing is lost between backups: when a file is changed or deleted, its previous copy is kept for
+  **Keep old versions** days (default 30) in `NAS Assistant Backup/versions/<date>/`.
+- The latest copy of everything is in `NAS Assistant Backup/current/`, readable on any computer.
+- The backup disk is used as is and never formatted: nothing outside its `NAS Assistant Backup` folder is touched.
+- Administrators can start a backup at any time with **Back up now**.
+
+Not copied: thumbnails (rebuilt automatically), Recently deleted, uploads still in progress.
+Use two different physical disks: two partitions of the same disk don't protect from a disk failure.
+
 ## Using it
 
 - **Home**: an iCloud-style welcome page with your storage, latest photos, recent files, what the family
   shared lately, your favorites and Recently deleted. Tap any card to open it.
 - **Photos**: a timeline by month. Uploads from the gallery go to `Photos/<year>/<month>`.
-- **Files**: folders and files of your private space.
+- **Files**: folders and files of your private space, as a list, icons or a grid (buttons at the top right).
 - **Family photos / Shared files**: the same, shared with every Home Assistant user.
 - Drag and drop files anywhere, or press **Upload**. Large files are sent in pieces and resume by themselves
   if the connection drops.
@@ -73,6 +89,9 @@ family/                           shared with everyone
 | `device` | Partition of the NAS disk. Recommended, works with protection mode on. |
 | `disk` | UUID or label of the NAS disk (advanced). |
 | `family_folder_name` | Name of the shared folder. |
+| `backup_device` | Optional second disk for nightly backups. |
+| `backup_time` | When the nightly backup runs (HH:MM). |
+| `backup_keep_days` | Days previous versions of changed or deleted files are kept. |
 | `trash_days` | Days an item stays in Recently deleted before it is erased for good (0 = never). |
 | `log_level` | Log detail. |
 

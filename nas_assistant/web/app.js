@@ -1,6 +1,12 @@
 // All URLs are relative so the UI works behind Ingress (/api/hassio_ingress/<token>/).
-const state = { space: "personal", view: "home", path: "", kind: "all", user: null, items: [], viewerIndex: -1 };
+const state = { space: "personal", view: "home", path: "", kind: "all", layout: savedLayout(), user: null, items: [], viewerIndex: -1 };
 const $ = (id) => document.getElementById(id);
+
+// Files layout (list, icons, grid): a per-browser preference.
+function savedLayout() {
+  try { return ["list", "icons", "grid"].includes(localStorage.getItem("nas-layout")) ? localStorage.getItem("nas-layout") : "list"; }
+  catch { return "list"; }
+}
 
 // --- Icons (outline, SF Symbols-like) -----------------------------------------
 
@@ -25,6 +31,11 @@ const ICON_PATHS = {
   archive: '<rect x="3.5" y="4" width="17" height="5" rx="1.5"/><path d="M5 9v9.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V9M10 13h4"/>',
   more: '<circle cx="5.5" cy="12" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/><circle cx="18.5" cy="12" r="1.3" fill="currentColor"/>',
   rename: '<path d="M14.5 5.5l4 4M4 20l1-4.5L15.8 4.7a1.8 1.8 0 0 1 2.5 0l1 1a1.8 1.8 0 0 1 0 2.5L8.5 19z"/>',
+  layoutList: '<path d="M8.5 6.5h11M8.5 12h11M8.5 17.5h11"/><circle cx="4.8" cy="6.5" r=".9" fill="currentColor"/><circle cx="4.8" cy="12" r=".9" fill="currentColor"/><circle cx="4.8" cy="17.5" r=".9" fill="currentColor"/>',
+  layoutIcons: '<rect x="4" y="4" width="6.5" height="6.5" rx="1.6"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.6"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.6"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.6"/>',
+  layoutGrid: '<rect x="3.5" y="4" width="17" height="10" rx="2"/><path d="M3.5 18h7M13.5 18h7"/>',
+  lock: '<rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/>',
+  backup: '<path d="M7 18.5h-.5a4 4 0 0 1-.6-7.96A5.5 5.5 0 0 1 16.6 9a3.8 3.8 0 0 1 .9 7.5"/><path d="M12 20.5v-8M9 15.5l3-3 3 3"/>',
   home: '<path d="M4 10.5 12 4l8 6.5V19a1.5 1.5 0 0 1-1.5 1.5H15v-6H9v6H5.5A1.5 1.5 0 0 1 4 19z"/>',
   heart: '<path d="M12 20s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.2a4.3 4.3 0 0 1 7.5 2.6C19.5 15.4 12 20 12 20z"/>',
   heartFill: '<path fill="currentColor" d="M12 20s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.2a4.3 4.3 0 0 1 7.5 2.6C19.5 15.4 12 20 12 20z"/>',
@@ -111,6 +122,8 @@ function setHeader(title, subtitle) {
   $("title").textContent = title;
   $("subtitle").textContent = subtitle;
   $("new-folder").hidden = state.view !== "files";
+  $("layout-switch").hidden = state.view !== "files";
+  document.querySelectorAll("#layout-switch button").forEach((b) => b.classList.toggle("active", b.dataset.layout === state.layout));
   $("upload-btn").hidden = state.view === "trash";
   $("empty-trash").hidden = true;
 }
@@ -120,7 +133,13 @@ function showEmpty(title, text) {
   if (title) { $("empty-title").textContent = title; $("empty-text").textContent = text; }
 }
 
+// Each render gets a number; a slower, older render that finishes later must not
+// draw over the newer one (e.g. switching folder while the previous one loads).
+let renderSeq = 0;
+const stale = (seq) => seq !== renderSeq;
+
 function render() {
+  renderSeq++;
   $("gallery").innerHTML = "";
   $("files").innerHTML = "";
   $("crumbs").innerHTML = "";
@@ -139,12 +158,14 @@ function render() {
 async function renderGallery() {
   const where = t(state.space === "personal" ? "mySpace" : "family");
   setHeader(t(state.space === "personal" ? "photos" : "familyPhotos"), where);
+  const seq = renderSeq;
   let items;
   try {
     ({ items } = await api(`api/photos?${qs({ space: state.space })}`));
   } catch (err) {
-    return showEmpty(t("photosLoadError"), err.message);
+    return stale(seq) || showEmpty(t("photosLoadError"), err.message);
   }
+  if (stale(seq)) return;
   renderChips(GALLERY_FILTERS);
   if (state.openPath) {
     const index = items.findIndex((i) => i.path === state.openPath);
@@ -211,6 +232,7 @@ async function renderFiles() {
   renderChips();
   if (state.kind === "all") renderCrumbs(root);
   $("new-folder").hidden = state.kind !== "all";
+  const seq = renderSeq;
   let entries;
   try {
     ({ entries } = state.kind === "all"
@@ -219,8 +241,9 @@ async function renderFiles() {
         ? await api(`api/favorites?${qs({ space: state.space })}`)
         : await api(`api/files/by-kind?${qs({ space: state.space, kind: state.kind })}`));
   } catch (err) {
-    return showEmpty(t("folderOpenError"), err.message);
+    return stale(seq) || showEmpty(t("folderOpenError"), err.message);
   }
+  if (stale(seq)) return;
   for (const e of entries) e.path = e.path || join(state.path, e.name);
   // The viewer browses the photos and videos of this list.
   state.items = entries.filter((e) => !e.is_dir && kindOf(e.name))
@@ -233,6 +256,7 @@ async function renderFiles() {
         : showEmpty(t("noKindTitle"), t("noKindText"));
   }
   const list = $("files");
+  list.className = `file-list layout-${state.layout}`;
   for (const entry of entries) list.append(fileRow(entry));
 }
 
@@ -270,7 +294,8 @@ function renderCrumbs(root) {
 function fileRow(entry) {
   const path = entry.path;
   const kind = entry.is_dir ? null : kindOf(entry.name);
-  const row = el("div", "row");
+  const listLayout = state.layout === "list";
+  const row = el("div", listLayout ? "row" : "cell");
 
   const thumb = el("div", entry.is_dir ? "thumb folder" : "thumb");
   if (kind) {
@@ -304,14 +329,20 @@ function fileRow(entry) {
     // Catalogue view: say which folder the file is in.
     const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : t(state.space === "personal" ? "files" : "sharedFiles");
     name.append(el("div", "where", folder));
+  } else if (!listLayout) {
+    name.append(el("div", "where", entry.is_dir ? t("folder") : formatSize(entry.size)));
   }
-  row.append(
-    thumb,
-    name,
-    el("div", "meta", shortFmt.format(entry.modified * 1000)),
-    el("div", "meta", entry.is_dir ? "—" : formatSize(entry.size)),
-    actions,
-  );
+  if (listLayout) {
+    row.append(
+      thumb,
+      name,
+      el("div", "meta", shortFmt.format(entry.modified * 1000)),
+      el("div", "meta", entry.is_dir ? "—" : formatSize(entry.size)),
+      actions,
+    );
+  } else {
+    row.append(thumb, name, actions);
+  }
 
   // Drag a row onto a folder (or a breadcrumb) to move it.
   row.draggable = true;
@@ -379,24 +410,116 @@ const APP_COLORS = {
   family: "linear-gradient(135deg, #30d158, #30b0c7)",
   favorite: "linear-gradient(135deg, #ff6482, #ff2d55)",
   trash: "linear-gradient(135deg, #aeaeb2, #636366)",
+  backup: "linear-gradient(135deg, #5e5ce6, #0a84ff)",
 };
 
 async function renderHome() {
+  const seq = renderSeq;
   let data, status;
   try {
-    [data, status] = await Promise.all([api("api/home"), api("api/status")]);
+    [data, status, state.backup] = await Promise.all([api("api/home"), api("api/status"), api("api/backup")]);
   } catch (err) {
-    return showEmpty(t("homeLoadError"), err.message);
+    return stale(seq) || showEmpty(t("homeLoadError"), err.message);
   }
-  if (state.view !== "home") return;  // the user moved on while loading
+  if (stale(seq)) return;  // the user moved on while loading
   $("home").replaceChildren(
     profileCard(status.usage),
     photosCard(data.photos),
     filesCard(data.recent),
     familyCard(data.family),
-    favoritesCard(data.favorites),
+    backupCard(state.backup),
     trashCard(data.trash),
+    favoritesCard(data.favorites),
   );
+}
+
+// The user's Home Assistant picture, or their initial when they have none.
+function avatarEl(className, name) {
+  const node = el("div", className, (name || "?").charAt(0).toUpperCase());
+  const img = new Image();
+  img.alt = "";
+  img.onload = () => node.replaceChildren(img);
+  img.src = "api/avatar";
+  return node;
+}
+
+const timeOnly = new Intl.DateTimeFormat(LOCALE, { hour: "2-digit", minute: "2-digit" });
+
+function when(seconds) {
+  const date = new Date(seconds * 1000);
+  const days = Math.round((new Date(date).setHours(0, 0, 0, 0) - new Date().setHours(0, 0, 0, 0)) / 86400000);
+  const day = days === 0 ? t("today") : days === -1 ? t("yesterday") : days === 1 ? t("tomorrow") : shortFmt.format(date);
+  return t("dayAtTime", { day, time: timeOnly.format(date) });
+}
+
+let backupPoll;
+
+function backupCard(info) {
+  const admin = state.user && state.user.is_admin;
+  const ready = info.state === "mounted";
+  let subtitle;
+  if (!ready) subtitle = t(info.state === "none" ? "backupLocked" : info.state === "same" ? "backupSame" : "backupMissing");
+  else if (info.running) subtitle = t("backupRunning", { n: info.percent });
+  else if (info.last && !info.last.ok) subtitle = t("backupFailed");
+  else subtitle = info.last_ok ? t("backupLast", { when: when(info.last_ok) }) : t("backupNever");
+  const node = card("backup-card" + (ready ? "" : " locked"), ready ? "backup" : "lock",
+    ready ? APP_COLORS.backup : APP_COLORS.trash, t("backup"), subtitle);
+  const body = el("div", "card-body");
+
+  if (!ready) {
+    body.append(el("p", "", t(info.state === "none" ? "backupHow" : "backupFix")));
+    if (admin) {
+      const link = el("a", "btn primary", t("openConfig"));
+      link.href = `https://my.home-assistant.io/redirect/supervisor_addon/?addon=${encodeURIComponent(info.addon)}`;
+      link.target = "_blank";
+      link.rel = "noopener";
+      body.append(link);
+    } else {
+      body.append(el("p", "card-sub", t("askAdmin")));
+    }
+    node.append(body);
+    return node;
+  }
+
+  if (info.running) {
+    const bar = el("div", "bar");
+    const fill = el("div", "bar-fill");
+    fill.style.width = `${info.percent}%`;
+    bar.append(fill);
+    body.append(bar);
+  }
+  const facts = el("ul", "facts");
+  facts.append(
+    el("li", "", t("backupNext", { when: when(info.next) })),
+    el("li", "", t("backupDisk", { free: formatSize(info.usage.free), total: formatSize(info.usage.total) })),
+    el("li", "", t("backupKeep", { n: info.keep_days })),
+  );
+  body.append(facts);
+  if (info.last && !info.last.ok && info.last.message) body.append(el("p", "notice", info.last.message));
+  if (info.same_disk) body.append(el("p", "notice", t("backupSameDisk")));
+  if (admin) {
+    const now = el("button", "btn primary", t(info.running ? "backupRunningShort" : "backupNow"));
+    now.disabled = info.running;
+    now.onclick = async () => {
+      now.disabled = true;
+      try { await post("api/backup/run", {}); } catch (err) { alert(err.message); }
+      setTimeout(refreshBackup, 800);
+    };
+    body.append(now);
+  }
+  node.append(body);
+  clearTimeout(backupPoll);
+  if (info.running) backupPoll = setTimeout(refreshBackup, 3000);
+  return node;
+}
+
+async function refreshBackup() {
+  if (state.view !== "home") return;
+  try {
+    const info = await api("api/backup");
+    const old = document.querySelector(".backup-card");
+    if (old && state.view === "home") old.replaceWith(backupCard(info));
+  } catch { /* try again on the next visit */ }
 }
 
 function card(className, iconName, color, title, subtitle, open) {
@@ -420,7 +543,7 @@ function profileCard(usage) {
   const node = el("section", "card profile");
   const name = (state.user && state.user.display_name) || "";
   const cloud = el("div", "cloud");
-  cloud.append(el("div", "big-avatar", name.charAt(0).toUpperCase() || "?"));
+  cloud.append(avatarEl("big-avatar", name));
   const info = el("div", "profile-info");
   info.append(el("h1", "", name), el("div", "profile-plan", "NAS Assistant"));
   if (usage) {
@@ -538,12 +661,14 @@ function trashCard(count) {
 
 async function renderTrash() {
   setHeader(t("recentlyDeleted"), "");
+  const seq = renderSeq;
   let items, days;
   try {
     ({ items, days } = await api("api/trash"));
   } catch (err) {
-    return showEmpty(t("trashLoadError"), err.message);
+    return stale(seq) || showEmpty(t("trashLoadError"), err.message);
   }
+  if (stale(seq)) return;
   $("subtitle").textContent = days ? t("trashNote", { n: days }) : t("trashNoteForever");
   $("empty-trash").hidden = !items.length;
   $("empty-trash").onclick = async () => {
@@ -680,7 +805,7 @@ function inlineRename(host, entry, save) {
   for (const type of ["click", "dblclick", "mousedown", "touchstart", "contextmenu"]) {
     input.addEventListener(type, (e) => e.stopPropagation());
   }
-  const row = host.closest(".row");
+  const row = host.closest(".row, .cell");
   if (row) { row.draggable = false; row.classList.add("editing"); }
   input.focus();
   const ext = entry.is_dir ? "" : extOf(entry.name);
@@ -1163,6 +1288,14 @@ function askFormat(disk, button) {
 
 $("disk-refresh").onclick = loadDisks;
 
+document.querySelectorAll("#layout-switch button").forEach((button) => {
+  button.onclick = () => {
+    state.layout = button.dataset.layout;
+    try { localStorage.setItem("nas-layout", state.layout); } catch { /* private window: not remembered */ }
+    render();
+  };
+});
+
 // --- Start --------------------------------------------------------------------
 
 translatePage();
@@ -1174,7 +1307,7 @@ paintIcons();
 api("api/me")
   .then((u) => {
     state.user = u;
-    const avatar = el("span", "avatar", (u.display_name || "?").charAt(0).toUpperCase());
+    const avatar = avatarEl("avatar", u.display_name);
     $("user").append(avatar, el("span", "", u.display_name));
   })
   .catch(() => {})

@@ -11,6 +11,15 @@ configuration:
   trash_days:
     name: "Jours dans Supprimés récemment"
     description: "Les éléments supprimés sont effacés définitivement après ce nombre de jours. 0 les garde jusqu'à ce que vous vidiez la corbeille."
+  backup_device:
+    name: "Disque de sauvegarde"
+    description: "Second disque facultatif : chaque nuit le disque du NAS est copié dans son dossier « NAS Assistant Backup ». Le reste n'est pas touché."
+  backup_time:
+    name: "Heure de sauvegarde"
+    description: "Heure de la sauvegarde nocturne (HH:MM)."
+  backup_keep_days:
+    name: "Garder les anciennes versions (jours)"
+    description: "Durée de conservation des versions précédentes des fichiers modifiés ou supprimés."
   log_level:
     name: Niveau de journalisation
     description: Niveau de détail écrit par le module dans son journal.

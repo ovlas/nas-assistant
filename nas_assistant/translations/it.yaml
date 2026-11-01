@@ -11,6 +11,15 @@ configuration:
   trash_days:
     name: "Giorni in Eliminati di recente"
     description: "Gli elementi eliminati vengono cancellati definitivamente dopo questi giorni. 0 li tiene finché non svuoti il cestino."
+  backup_device:
+    name: "Disco di backup"
+    description: "Secondo disco facoltativo: ogni notte il disco del NAS viene copiato nella sua cartella \"NAS Assistant Backup\". Il resto del disco non viene toccato."
+  backup_time:
+    name: "Orario del backup"
+    description: "Quando parte il backup notturno (HH:MM)."
+  backup_keep_days:
+    name: "Conserva versioni precedenti (giorni)"
+    description: "Per quanto tempo restano sul disco di backup le versioni precedenti dei file modificati o cancellati."
   log_level:
     name: Livello log
     description: Quanti dettagli l'add-on scrive nel log.

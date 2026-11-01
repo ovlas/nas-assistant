@@ -11,6 +11,15 @@ configuration:
   trash_days:
     name: "Tage in „Zuletzt gelöscht“"
     description: "Gelöschte Objekte werden nach so vielen Tagen endgültig entfernt. 0 behält sie, bis du den Papierkorb leerst."
+  backup_device:
+    name: "Backup-Festplatte"
+    description: "Optionale zweite Festplatte: Jede Nacht wird die NAS-Festplatte in ihren Ordner „NAS Assistant Backup“ kopiert. Sonst wird nichts angefasst."
+  backup_time:
+    name: "Backup-Uhrzeit"
+    description: "Wann das nächtliche Backup startet (HH:MM)."
+  backup_keep_days:
+    name: "Alte Versionen behalten (Tage)"
+    description: "Wie lange frühere Versionen geänderter oder gelöschter Dateien aufbewahrt werden."
   log_level:
     name: Protokollstufe
     description: Wie ausführlich das Add-on protokolliert.

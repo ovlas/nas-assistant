@@ -55,6 +55,36 @@ async def _ws_call(url: str, token: str, message: dict) -> Optional[object]:
         raise HTTPException(503, "Home Assistant is not reachable")
 
 
+_avatar_cache: Dict[str, Tuple[float, Optional[Tuple[bytes, str]]]] = {}
+
+
+async def avatar(user_id: str) -> Optional[Tuple[bytes, str]]:
+    """The picture of the Home Assistant person linked to this user, as (bytes, content type)."""
+    cached = _avatar_cache.get(user_id)
+    if cached and cached[0] > time.monotonic():
+        return cached[1]
+    picture = None
+    if SUPERVISOR_TOKEN:
+        headers = {"Authorization": f"Bearer {SUPERVISOR_TOKEN}"}
+        try:
+            async with aiohttp.ClientSession(headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as session:
+                async with session.get("http://supervisor/core/api/states") as resp:
+                    states = await resp.json() if resp.status == 200 else []
+                url = next((s["attributes"].get("entity_picture") for s in states
+                            if s["entity_id"].startswith("person.")
+                            and s["attributes"].get("user_id") == user_id
+                            and s["attributes"].get("entity_picture")), None)
+                # Only pictures served by Home Assistant itself, never an outside URL.
+                if url and url.startswith("/"):
+                    async with session.get(f"http://supervisor/core{url}") as resp:
+                        if resp.status == 200:
+                            picture = (await resp.read(), resp.content_type or "image/jpeg")
+        except (aiohttp.ClientError, TimeoutError, ValueError, KeyError):
+            picture = None
+    _avatar_cache[user_id] = (time.monotonic() + 600, picture)
+    return picture
+
+
 async def _admin_ids() -> FrozenSet[str]:
     global _admin_cache
     if _admin_cache[0] > time.monotonic():

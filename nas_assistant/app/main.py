@@ -4,19 +4,45 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from . import disks, favorites, media, storage
-from .auth import User, admin_user, current_user
+from . import backup, disks, favorites, media, storage
+from .auth import User, admin_user, avatar, current_user
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
-app = FastAPI(title="NAS Assistant", version="0.9.0")
+app = FastAPI(title="NAS Assistant", version="0.10.0")
 
 # Small boards: decode at most two big images at once. Waiting requests queue
 # here, outside the worker threads, so uploads and browsing never stall behind them.
 _thumb_slots = asyncio.Semaphore(2)
+
+
+@app.on_event("startup")
+async def start_backup_scheduler():
+    asyncio.get_running_loop().create_task(backup.scheduler())
+
+
+@app.get("/api/backup")
+async def backup_status(user: User = Depends(current_user)):
+    return await run_in_threadpool(backup.status)
+
+
+@app.post("/api/backup/run")
+async def backup_now(user: User = Depends(admin_user)):
+    if not await backup.start():
+        raise HTTPException(409, "A backup is already running")
+    return {"ok": True}
+
+
+@app.get("/api/avatar")
+async def user_avatar(user: User = Depends(current_user)):
+    """The user's picture from their Home Assistant person, if they have one."""
+    picture = await avatar(user.id)
+    if not picture:
+        raise HTTPException(404, "Not found")
+    return Response(picture[0], media_type=picture[1], headers={"Cache-Control": "private, max-age=600"})
 
 
 @app.get("/api/me")

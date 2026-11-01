@@ -1,5 +1,5 @@
 name: NAS Assistant
-version: "0.9.0"
+version: "0.10.0"
 slug: nas_assistant
 description: Your family cloud, at home. A private space for every Home Assistant user, on a disk you choose
 url: https://github.com/ovlas/nas-assistant
@@ -40,10 +40,15 @@ options:
   disk: ""
   family_folder_name: Family
   trash_days: 30
+  backup_time: "03:00"
+  backup_keep_days: 30
   log_level: info
 schema:
   device: device(subsystem=block)?
   disk: str?
   family_folder_name: str
   trash_days: int(0,365)
+  backup_device: device(subsystem=block)?
+  backup_time: match(^([01][0-9]|2[0-3]):[0-5][0-9]$)
+  backup_keep_days: int(1,365)
   log_level: list(debug|info|warning|error)
