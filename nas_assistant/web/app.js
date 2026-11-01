@@ -34,7 +34,7 @@ function paintIcons(root = document) {
 
 async function api(url, opts) {
   const res = await fetch(url, opts);
-  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || res.statusText);
+  if (!res.ok) throw new Error(tError((await res.json().catch(() => ({}))).detail || res.statusText));
   return res.json();
 }
 
@@ -69,10 +69,10 @@ function formatSize(bytes) {
 }
 
 const capitalize = (s) => s.charAt(0).toUpperCase() + s.slice(1);
-const monthFmt = new Intl.DateTimeFormat("it-IT", { month: "long", year: "numeric" });
-const dayFmt = new Intl.DateTimeFormat("it-IT", { day: "numeric", month: "long", year: "numeric" });
-const timeFmt = new Intl.DateTimeFormat("it-IT", { hour: "2-digit", minute: "2-digit" });
-const shortFmt = new Intl.DateTimeFormat("it-IT", { day: "numeric", month: "short", year: "numeric" });
+const monthFmt = new Intl.DateTimeFormat(LOCALE, { month: "long", year: "numeric" });
+const dayFmt = new Intl.DateTimeFormat(LOCALE, { day: "numeric", month: "long", year: "numeric" });
+const timeFmt = new Intl.DateTimeFormat(LOCALE, { hour: "2-digit", minute: "2-digit" });
+const shortFmt = new Intl.DateTimeFormat(LOCALE, { day: "numeric", month: "short", year: "numeric" });
 
 function fadeIn(img) {
   img.onload = () => img.classList.add("loaded");
@@ -110,21 +110,21 @@ function render() {
 // --- Gallery ------------------------------------------------------------------
 
 async function renderGallery() {
-  const where = state.space === "personal" ? "Il mio spazio" : "Famiglia";
-  setHeader(state.space === "personal" ? "Foto" : "Foto di famiglia", where);
+  const where = t(state.space === "personal" ? "mySpace" : "family");
+  setHeader(t(state.space === "personal" ? "photos" : "familyPhotos"), where);
   let items;
   try {
     ({ items } = await api(`api/photos?${qs({ space: state.space })}`));
   } catch (err) {
-    return showEmpty("Impossibile caricare le foto", err.message);
+    return showEmpty(t("photosLoadError"), err.message);
   }
   state.items = items;
   const photos = items.filter((i) => i.kind === "image").length;
   const videos = items.length - photos;
   setHeader($("title").textContent,
-    [where, `${photos} foto`, videos ? `${videos} video` : ""].filter(Boolean).join(" · "));
+    [where, t("photoCount", { n: photos }), videos ? t("videoCount", { n: videos }) : ""].filter(Boolean).join(" · "));
   if (!items.length) {
-    return showEmpty("Ancora nessuna foto", "Trascina qui foto e video, oppure premi Carica.");
+    return showEmpty(t("noPhotosTitle"), t("noPhotosText"));
   }
 
   const gallery = $("gallery");
@@ -165,20 +165,20 @@ function tile(item, index) {
 // --- Files --------------------------------------------------------------------
 
 async function renderFiles() {
-  const root = state.space === "personal" ? "File" : "File condivisi";
-  setHeader(root, state.space === "personal" ? "Il mio spazio" : "Famiglia");
+  const root = t(state.space === "personal" ? "files" : "sharedFiles");
+  setHeader(root, t(state.space === "personal" ? "mySpace" : "family"));
   renderCrumbs(root);
   let entries;
   try {
     ({ entries } = await api(`api/files?${qs({ space: state.space, path: state.path })}`));
   } catch (err) {
-    return showEmpty("Impossibile aprire la cartella", err.message);
+    return showEmpty(t("folderOpenError"), err.message);
   }
   // The viewer browses the photos and videos of this folder.
   state.items = entries.filter((e) => !e.is_dir && kindOf(e.name))
     .map((e) => ({ path: join(state.path, e.name), name: e.name, kind: kindOf(e.name), taken: e.modified, v: e.v }));
   if (!entries.length) {
-    return showEmpty("Cartella vuota", "Trascina qui i file, oppure premi Carica.");
+    return showEmpty(t("emptyFolderTitle"), t("emptyFolderText"));
   }
   const list = $("files");
   for (const entry of entries) list.append(fileRow(entry));
@@ -217,17 +217,17 @@ function fileRow(entry) {
   if (!entry.is_dir) {
     const dl = el("a", "icon-btn");
     dl.href = fileUrl(path);
-    dl.title = "Scarica";
+    dl.title = t("download");
     dl.append(iconEl("download"));
     dl.onclick = (e) => e.stopPropagation();
     actions.append(dl);
   }
   const del = el("button", "icon-btn");
-  del.title = "Sposta nel cestino";
+  del.title = t("moveToTrash");
   del.append(iconEl("trash"));
   del.onclick = async (e) => {
     e.stopPropagation();
-    if (!confirm(`Spostare "${entry.name}" nel cestino?`)) return;
+    if (!confirm(t("confirmTrash", { name: entry.name }))) return;
     await removeItem(path);
     render();
   };
@@ -312,7 +312,7 @@ $("v-prev").onclick = () => step(-1);
 $("v-next").onclick = () => step(1);
 $("v-delete").onclick = async () => {
   const item = state.items[state.viewerIndex];
-  if (!confirm(`Spostare "${item.name}" nel cestino?`)) return;
+  if (!confirm(t("confirmTrash", { name: item.name }))) return;
   await removeItem(item.path);
   state.items.splice(state.viewerIndex, 1);
   if (state.viewerIndex >= state.items.length) state.viewerIndex--;
@@ -360,10 +360,10 @@ function putChunk(url, blob, onProgress) {
       if (xhr.status < 300) return resolve(body);
       const detail = body.detail || {};
       if (xhr.status === 409 && typeof detail.offset === "number") return fail("resume", detail.offset);
-      fail(typeof detail === "string" ? detail : detail.message || `Errore ${xhr.status}`);
+      fail(typeof detail === "string" ? tError(detail) : t("httpError", { status: xhr.status }));
     };
-    xhr.onerror = () => fail("Connessione interrotta");
-    xhr.onabort = () => fail("Connessione bloccata");
+    xhr.onerror = () => fail(t("connectionLost"));
+    xhr.onabort = () => fail(t("connectionStalled"));
     xhr.send(blob);
   });
 }
@@ -383,7 +383,7 @@ async function uploadOne(file, path, onProgress) {
     } catch (err) {
       if (err.offset !== undefined) { offset = err.offset; continue; }  // server tells where to resume
       if (++attempts >= RETRIES) throw err;
-      $("toast-text").textContent = `Connessione instabile, riprovo… (${attempts}/${RETRIES - 1})`;
+      $("toast-text").textContent = t("retrying", { i: attempts, n: RETRIES - 1 });
       await sleep(2000 * attempts);
       // Resume from what actually reached the disk, not from the start of the piece.
       try {
@@ -395,17 +395,17 @@ async function uploadOne(file, path, onProgress) {
 
 async function upload(files) {
   if (!files.length) return;
-  // In the gallery new photos go to Foto/<year>/<month>, like a camera roll.
+  // In the gallery new photos go to Photos/<year>/<month>, like a camera roll.
   const now = new Date();
   const target = state.view === "photos"
-    ? join("Foto", String(now.getFullYear()), String(now.getMonth() + 1).padStart(2, "0"))
+    ? join(t("photosFolder"), String(now.getFullYear()), String(now.getMonth() + 1).padStart(2, "0"))
     : state.path;
   const total = files.reduce((sum, f) => sum + f.size, 0) || 1;
   let done = 0;
   const errors = [];
   $("toast").hidden = false;
   for (const [i, file] of files.entries()) {
-    $("toast-text").textContent = `Caricamento ${i + 1} di ${files.length} · ${file.name}`;
+    $("toast-text").textContent = t("uploading", { i: i + 1, n: files.length, name: file.name });
     try {
       await uploadOne(file, target, (loaded) => { $("toast-bar").style.width = `${((done + loaded) / total) * 100}%`; });
     } catch (err) {
@@ -413,7 +413,7 @@ async function upload(files) {
     }
     done += file.size;
   }
-  $("toast-text").textContent = errors.length ? `${errors.length} file non caricati` : `${files.length} elementi caricati`;
+  $("toast-text").textContent = errors.length ? t("notUploaded", { n: errors.length }) : t("uploaded", { n: files.length });
   $("toast-bar").style.width = "100%";
   if (errors.length) alert(errors.join("\n"));
   setTimeout(() => { $("toast").hidden = true; $("toast-bar").style.width = "0"; }, 2500);
@@ -432,7 +432,7 @@ main.ondrop = (e) => {
 };
 
 $("new-folder").onclick = async () => {
-  const name = prompt("Nome della nuova cartella");
+  const name = prompt(t("newFolderPrompt"));
   if (!name) return;
   const form = new FormData();
   form.append("space", state.space);
@@ -449,10 +449,10 @@ async function loadStatus() {
     const { disk, usage } = await api("api/status");
     showSetup(disk !== "mounted", disk);
     if (disk !== "mounted") {
-      $("disk-label").textContent = disk === "missing" ? "Disco NAS non trovato" : "Nessun disco configurato";
+      $("disk-label").textContent = t(disk === "missing" ? "diskMissing" : "diskNone");
       return false;
     }
-    $("disk-label").textContent = `${formatSize(usage.free)} liberi su ${formatSize(usage.total)}`;
+    $("disk-label").textContent = t("diskFree", { free: formatSize(usage.free), total: formatSize(usage.total) });
     $("disk-bar").style.width = `${(usage.used / usage.total) * 100}%`;
     return true;
   } catch {
@@ -468,32 +468,30 @@ function showSetup(visible, disk) {
   if (visible) showEmpty(null);
   if (!visible) return;
   if (!state.user || !state.user.is_admin) {
-    $("setup-lead").textContent = "Il NAS non ha ancora un disco. Chiedi a un amministratore di Home Assistant di configurarlo.";
+    $("setup-lead").textContent = t("setupNoAdmin");
     $("disk-list").innerHTML = "";
     $("disk-refresh").hidden = true;
     return;
   }
   if (disk === "missing") {
-    $("setup-lead").textContent = "Il disco del NAS non è collegato. Ricollegalo e riavvia l'add-on, oppure scegline un altro.";
+    $("setup-lead").textContent = t("setupMissing");
   }
   loadDisks();
 }
 
 async function loadDisks() {
   const list = $("disk-list");
-  list.innerHTML = '<p class="lead">Cerco i dischi…</p>';
+  list.replaceChildren(el("p", "lead", t("searchingDisks")));
   try {
     const { disks } = await api("api/disks");
     list.innerHTML = "";
     if (disks.some((d) => !d.accessible)) {
-      list.append(el("p", "notice",
-        "Home Assistant non dà ancora accesso ai dischi a NAS Assistant. Nella pagina dell'add-on disattiva " +
-        "\"Modalità protetta\", riavvia l'add-on e torna qui."));
+      list.append(el("p", "notice", t("protectionNotice")));
     }
-    if (!disks.length) list.innerHTML = '<p class="lead">Nessun disco trovato. Collegane uno e premi "Aggiorna elenco".</p>';
+    if (!disks.length) list.append(el("p", "lead", t("noDisks")));
     for (const disk of disks) list.append(diskItem(disk));
   } catch (err) {
-    list.innerHTML = `<p class="lead">${err.message}</p>`;
+    list.replaceChildren(el("p", "lead", err.message));
   }
 }
 
@@ -502,31 +500,31 @@ function diskItem(disk) {
   const badge = el("div", "disk-icon");
   badge.append(iconEl("disk"));
   const info = el("div", "disk-info");
-  const kind = [disk.transport, disk.removable ? "rimovibile" : ""].filter(Boolean).join(" · ");
+  const kind = [disk.transport, disk.removable ? t("removable") : ""].filter(Boolean).join(" · ");
   info.append(el("div", "disk-title", disk.model), el("div", "disk-sub", [formatSize(disk.size), kind, disk.path].filter(Boolean).join(" · ")));
   card.append(badge, info);
 
   if (!disk.accessible) {
-    info.append(el("div", "disk-sub", "Disco non accessibile finché la modalità protetta è attiva"));
+    info.append(el("div", "disk-sub", t("diskLocked")));
     return card;
   }
   for (const part of disk.partitions) {
     const row = el("div", "part-row");
-    const desc = [part.label || "senza nome", FS_NAMES[part.fstype] || part.fstype || "non formattata", formatSize(part.size)].join(" · ");
+    const desc = [part.label || t("unnamed"), FS_NAMES[part.fstype] || part.fstype || t("unformatted"), formatSize(part.size)].join(" · ");
     row.append(el("span", "", desc));
     if (part.usable) {
-      const use = el("button", "btn primary", "Usa così com'è");
-      use.title = "Nessun file viene cancellato";
+      const use = el("button", "btn primary", t("useAsIs"));
+      use.title = t("useAsIsTitle");
       use.onclick = () => runDiskAction(use, "api/disks/use", { uuid: part.uuid });
       row.append(use);
     } else {
-      row.append(el("span", "disk-sub", "formato non supportato"));
+      row.append(el("span", "disk-sub", t("unsupported")));
     }
     info.append(row);
   }
   const actions = el("div", "disk-actions");
   const format = el("button", disk.partitions.some((p) => p.usable) ? "btn link" : "btn danger",
-    disk.partitions.length ? "Cancella tutto e formatta" : "Prepara disco (formatta)");
+    t(disk.partitions.length ? "eraseAndFormat" : "prepareDisk"));
   format.onclick = () => askFormat(disk, format);
   actions.append(format);
   info.append(actions);
@@ -537,7 +535,7 @@ async function runDiskAction(button, url, fields) {
   const form = new FormData();
   for (const [key, value] of Object.entries(fields)) form.append(key, value);
   document.querySelectorAll(".disk-item button").forEach((b) => (b.disabled = true));
-  button.textContent = "Attendi…";
+  button.textContent = t("wait");
   try {
     await api(url, { method: "POST", body: form });
     if (await loadStatus()) render();
@@ -549,11 +547,15 @@ async function runDiskAction(button, url, fields) {
 
 function askFormat(disk, button) {
   const dialog = $("format-dialog");
-  $("format-name").textContent = `${disk.model} (${formatSize(disk.size)})`;
+  const name = el("span", "", `${disk.model} (${formatSize(disk.size)})`).innerHTML;
+  $("format-text").innerHTML = t("formatText", { name });
+  $("format-word").innerHTML = t("formatConfirm", { word: t("formatWord") });
   $("format-confirm").value = "";
   dialog.onclose = () => {
+    // The user types the word in their own language; the server always wants "FORMAT".
+    const typed = $("format-confirm").value.trim().toUpperCase();
     if (dialog.returnValue === "ok") {
-      runDiskAction(button, "api/disks/format", { path: disk.path, confirm: $("format-confirm").value.trim() });
+      runDiskAction(button, "api/disks/format", { path: disk.path, confirm: typed === t("formatWord") ? "FORMAT" : typed });
     }
   };
   dialog.showModal();
@@ -563,6 +565,7 @@ $("disk-refresh").onclick = loadDisks;
 
 // --- Start --------------------------------------------------------------------
 
+translatePage();
 document.querySelectorAll(".nav-item").forEach((btn) => {
   btn.onclick = () => go(btn.dataset.space, btn.dataset.view);
 });

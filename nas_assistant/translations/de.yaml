@@ -1,0 +1,12 @@
+configuration:
+  disk:
+    name: NAS-Festplatte
+    description: UUID oder Bezeichnung der NAS-Festplatte. Leer lassen und in der Oberfläche auswählen.
+  family_folder_name:
+    name: Name des geteilten Ordners
+    description: Name des Ordners, der mit der ganzen Familie geteilt wird.
+  log_level:
+    name: Protokollstufe
+    description: Wie ausführlich das Add-on protokolliert.
+network:
+  8456/tcp: API für die mobilen Apps (LAN / Tailscale)

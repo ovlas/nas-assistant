@@ -2,26 +2,38 @@
 
 <h1 align="center">NAS Assistant</h1>
 
-Il cloud di famiglia, a casa tua, dentro Home Assistant.
-Un'alternativa locale a iCloud Famiglia: ogni utente di Home Assistant ha il suo spazio privato,
-più una cartella condivisa con tutta la famiglia, su un disco dedicato scelto da te.
+<p align="center">Your family cloud, at home, inside Home Assistant.</p>
 
-- 🔒 Spazio privato per ogni utente HA, senza nuovi account
-- 🖼️ Galleria foto e video in stile Apple: timeline per mese, visore a schermo intero, foto HEIC dell'iPhone
-- 👨‍👩‍👧 Cartella Famiglia condivisa
-- 💽 Disco dedicato (la capienza la scegli tu): i backup di HA restano sul disco principale
-- 📱 App iOS e Android (in arrivo) con backup automatico delle foto
-- 🏠 Tutto in locale
+A local alternative to iCloud Family Sharing: every Home Assistant user gets a private space,
+plus a folder shared with the whole family, on a dedicated disk of your choice.
 
-## Installazione
+- 🔒 A private space for every HA user, no new accounts
+- 🖼️ Apple-style photo and video gallery: monthly timeline, full-screen viewer, iPhone HEIC photos
+- 👨‍👩‍👧 Shared Family folder
+- 💽 Dedicated disk, any size: HA backups stay on the main disk
+- 🧷 Uses your disk as is (ext4, exFAT, NTFS): nothing is formatted unless you ask
+- ⏯️ Resumable uploads that survive dropped connections and large videos
+- 🌍 Speaks your language: follows your Home Assistant profile (English, Italiano, Español, Français, Deutsch)
+- 📱 iOS and Android apps with automatic photo backup (coming soon)
+- 🏠 Everything stays local
 
-1. Impostazioni → Add-on → Store → ⋮ → Repository → aggiungi `https://github.com/ovlas/nas-assistant`
-2. Installa **NAS Assistant**, imposta il disco nella configurazione, avvia
-3. Apri **NAS** dalla barra laterale
+## Installation
 
-Architettura e roadmap: [docs/ARCHITETTURA.md](docs/ARCHITETTURA.md)
+[![Add repository to my Home Assistant](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fovlas%2Fnas-assistant)
 
-## Sviluppo locale
+1. Settings → Add-ons → Add-on Store → ⋮ → Repositories → add `https://github.com/ovlas/nas-assistant`
+2. Install **NAS Assistant** and start it
+3. Open **NAS** from the sidebar and choose the disk
+
+Full guide: [nas_assistant/DOCS.md](nas_assistant/DOCS.md) · Architecture and roadmap: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+
+## Translations
+
+The UI picks the language of your Home Assistant profile, then your browser's, then English.
+To add a language, copy the `en` block in [`nas_assistant/web/i18n.js`](nas_assistant/web/i18n.js)
+and add a file in [`nas_assistant/translations/`](nas_assistant/translations) for the add-on options. Pull requests welcome!
+
+## Local development
 
 ```bash
 cd nas_assistant
@@ -30,4 +42,4 @@ NAS_ROOT=/tmp/nas NAS_DEV_TRUSTED_IP=127.0.0.1 python -m uvicorn app.main:app --
 curl -H "X-Remote-User-Id: test" http://127.0.0.1:8456/api/me
 ```
 
-Licenza: MIT
+License: MIT

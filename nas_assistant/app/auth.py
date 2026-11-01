@@ -52,7 +52,7 @@ async def _ws_call(url: str, token: str, message: dict) -> Optional[object]:
                 await ws.send_json({"id": 1, **message})
                 return (await ws.receive_json()).get("result")
     except (aiohttp.ClientError, TimeoutError):
-        raise HTTPException(503, "Home Assistant non raggiungibile")
+        raise HTTPException(503, "Home Assistant is not reachable")
 
 
 async def _admin_ids() -> FrozenSet[str]:
@@ -105,10 +105,10 @@ async def current_user(request: Request) -> User:
         user = await _from_bearer(auth[len("Bearer "):])
         if user:
             return user
-    raise HTTPException(401, "Accesso non autorizzato")
+    raise HTTPException(401, "Not authorized")
 
 
 async def admin_user(user: User = Depends(current_user)) -> User:
     if not user.is_admin:
-        raise HTTPException(403, "Serve un amministratore di Home Assistant")
+        raise HTTPException(403, "A Home Assistant administrator is required")
     return user

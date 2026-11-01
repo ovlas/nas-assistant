@@ -12,7 +12,7 @@ from .auth import User, admin_user, current_user
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
-app = FastAPI(title="NAS Assistant", version="0.3.2")
+app = FastAPI(title="NAS Assistant", version="0.4.0")
 
 # Small boards: decode at most two big images at once. Waiting requests queue
 # here, outside the worker threads, so uploads and browsing never stall behind them.
@@ -43,7 +43,7 @@ async def _fields(request: Request, *names: str) -> list:
         data = await request.form()
     values = [data.get(name) for name in names]
     if not all(isinstance(v, str) and v for v in values):
-        raise HTTPException(422, f"Campi richiesti: {', '.join(names)}")
+        raise HTTPException(422, f"Required fields: {', '.join(names)}")
     return values
 
 
@@ -119,7 +119,7 @@ async def upload_chunk(
     partial, target = storage.chunk_targets(user, space, path, name)
     have = partial.stat().st_size if partial.exists() else 0
     if offset and offset != have:
-        raise HTTPException(409, {"message": "Riprendo il caricamento", "offset": have})
+        raise HTTPException(409, {"message": "Resuming upload", "offset": have})
     with open(partial, "ab" if offset else "wb") as out:
         async for chunk in request.stream():
             out.write(chunk)
@@ -133,7 +133,7 @@ async def upload_chunk(
 async def download(space: str, path: str, inline: bool = False, user: User = Depends(current_user)):
     target = storage.resolve(user, space, path)
     if not target.is_file():
-        raise HTTPException(404, "File non trovato")
+        raise HTTPException(404, "File not found")
     # Supports HTTP Range requests, which Safari/iOS need to play videos.
     return FileResponse(target, filename=target.name,
                         content_disposition_type="inline" if inline else "attachment")

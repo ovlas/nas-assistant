@@ -1,11 +1,12 @@
 configuration:
   disk:
     name: NAS disk
-    description: UUID or label of the disk dedicated to the NAS. Leave empty to pick it from the UI.
+    description: UUID or label of the disk dedicated to the NAS. Leave empty to choose it from the interface.
   family_folder_name:
     name: Shared folder name
     description: Name of the folder shared with the whole family.
   log_level:
     name: Log level
+    description: How much detail the add-on writes to its log.
 network:
-  8456/tcp: API for the mobile apps
+  8456/tcp: API for the mobile apps (LAN / Tailscale)

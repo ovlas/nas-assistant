@@ -1,0 +1,12 @@
+configuration:
+  disk:
+    name: Disco NAS
+    description: UUID o etiqueta del disco dedicado al NAS. Déjalo vacío y elígelo desde la interfaz.
+  family_folder_name:
+    name: Nombre de la carpeta compartida
+    description: Nombre de la carpeta compartida con toda la familia.
+  log_level:
+    name: Nivel de registro
+    description: Cuánto detalle escribe el complemento en su registro.
+network:
+  8456/tcp: API para las apps móviles (LAN / Tailscale)

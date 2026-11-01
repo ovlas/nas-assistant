@@ -19,7 +19,7 @@ from fastapi import HTTPException
 NAS_ROOT = Path(os.environ.get("NAS_ROOT", "/nas"))
 CONFIG_FILE = Path(os.environ.get("NAS_DISK_CONFIG", "/data/disk.json"))
 FS_LABEL = "NAS"
-FORMAT_CONFIRM = "FORMATTA"
+FORMAT_CONFIRM = "FORMAT"
 USABLE_FS = ("ext4", "exfat", "ntfs")
 SKIP_NAMES = ("loop", "zram", "ram", "sr")
 MOUNT_CMD = os.environ.get("NAS_MOUNT_CMD", "/usr/local/bin/nas-mount")
@@ -66,7 +66,7 @@ def _readable(path: str) -> bool:
             dev.read(512)
         return True
     except OSError as err:
-        print(f"Disco {path} non leggibile: {err}", flush=True)
+        print(f"Disk {path} is not readable: {err}", flush=True)
         return False
 
 
@@ -139,14 +139,14 @@ def _mount(uuid: str) -> None:
         probe.unlink()
     except OSError:
         subprocess.run(["umount", str(NAS_ROOT)], capture_output=True)
-        raise HTTPException(500, "Il disco si monta ma non è scrivibile")
+        raise HTTPException(500, "The disk mounts but is not writable")
     CONFIG_FILE.write_text(json.dumps({"uuid": uuid}))
     _state = "mounted"
 
 
 def _require_unconfigured() -> None:
     if _state == "mounted":
-        raise HTTPException(409, "Il disco NAS è già configurato")
+        raise HTTPException(409, "The NAS disk is already configured")
 
 
 def use_partition(uuid: str) -> None:
@@ -154,7 +154,7 @@ def use_partition(uuid: str) -> None:
         _require_unconfigured()
         usable = {p["uuid"] for d in list_disks() for p in d["partitions"] if p["usable"]}
         if uuid not in usable:
-            raise HTTPException(400, "Partizione non utilizzabile")
+            raise HTTPException(400, "Partition not usable")
         _mount(uuid)
 
 
@@ -167,16 +167,16 @@ def _wait_for_partition(disk_path: str, timeout: float = 10) -> str:
                 if parts:
                     return parts[0]
         time.sleep(0.5)
-    raise HTTPException(500, "La nuova partizione non è comparsa")
+    raise HTTPException(500, "The new partition did not appear")
 
 
 def format_disk(disk_path: str, confirm: str) -> None:
     if confirm != FORMAT_CONFIRM:
-        raise HTTPException(400, f"Scrivi {FORMAT_CONFIRM} per confermare")
+        raise HTTPException(400, "Formatting not confirmed")
     with _lock:
         _require_unconfigured()
         if disk_path not in {d["path"] for d in list_disks()}:
-            raise HTTPException(400, "Disco non selezionabile")
+            raise HTTPException(400, "Disk not selectable")
         # One GPT partition spanning the whole disk, then ext4 labelled NAS.
         _run("sfdisk", "--wipe", "always", "--wipe-partitions", "always", disk_path,
              stdin="label: gpt\n,,L\n")

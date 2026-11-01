@@ -1,7 +1,7 @@
 name: NAS Assistant
-version: "0.3.2"
+version: "0.4.0"
 slug: nas_assistant
-description: Il cloud di famiglia, in locale, con uno spazio privato per ogni utente di Home Assistant
+description: Your family cloud, at home. A private space for every Home Assistant user, on a disk you choose
 url: https://github.com/ovlas/nas-assistant
 arch:
   - aarch64
@@ -18,7 +18,7 @@ panel_admin: false
 ports:
   8456/tcp: 8456
 ports_description:
-  8456/tcp: API per le app mobili (LAN / Tailscale)
+  8456/tcp: API for the mobile apps (LAN / Tailscale)
 homeassistant_api: true
 udev: true
 # Needed to mount the dedicated NAS disk inside the container.
@@ -33,7 +33,7 @@ backup_exclude:
   - "*/cache/*"
 options:
   disk: ""
-  family_folder_name: Famiglia
+  family_folder_name: Family
   log_level: info
 schema:
   disk: str?

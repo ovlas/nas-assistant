@@ -15,15 +15,15 @@ if bashio::var.has_value "${DISK}"; then
     # DISK can be a UUID or a filesystem label.
     DEVICE="$(blkid -U "${DISK}" 2>/dev/null || blkid -L "${DISK}" 2>/dev/null || true)"
     if [ -z "${DEVICE}" ]; then
-        bashio::log.error "Disco '${DISK}' non trovato. Collegalo e riavvia l'add-on."
+        bashio::log.error "Disk '${DISK}' not found. Plug it in and restart the add-on."
         export NAS_DISK_STATE=missing
     else
-        bashio::log.info "Monto ${DEVICE} in ${NAS_ROOT}"
+        bashio::log.info "Mounting ${DEVICE} on ${NAS_ROOT}"
         nas-mount "${DEVICE}" "${NAS_ROOT}"
         export NAS_DISK_STATE=mounted
     fi
 else
-    bashio::log.warning "Nessun disco NAS configurato: aprilo dalla barra laterale per sceglierne uno."
+    bashio::log.warning "No NAS disk configured: open NAS Assistant from the sidebar to choose one."
     export NAS_DISK_STATE=unconfigured
 fi
 

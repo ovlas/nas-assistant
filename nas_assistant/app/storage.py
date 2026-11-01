@@ -27,18 +27,18 @@ _SAFE_ID = re.compile(r"^[A-Za-z0-9_-]+$")
 def _require_disk() -> None:
     if disks.state() != "mounted":
         # Never fall back to the main disk.
-        raise HTTPException(503, "Disco NAS non disponibile")
+        raise HTTPException(503, "NAS disk not available")
 
 
 def _space_root(user: User, space: str) -> Path:
     if not _SAFE_ID.match(user.id):
-        raise HTTPException(400, "ID utente non valido")
+        raise HTTPException(400, "Invalid user ID")
     if space == "personal":
         root = NAS_ROOT / "users" / user.id
     elif space == "family":
         root = NAS_ROOT / "family"
     else:
-        raise HTTPException(400, "Spazio sconosciuto")
+        raise HTTPException(400, "Unknown space")
     root.mkdir(parents=True, exist_ok=True)
     return root
 
@@ -49,21 +49,21 @@ def resolve(user: User, space: str, rel_path: str) -> Path:
     root = _space_root(user, space).resolve()
     target = (root / rel_path.lstrip("/")).resolve()
     if target != root and root not in target.parents:
-        raise HTTPException(400, "Percorso non valido")
+        raise HTTPException(400, "Invalid path")
     return target
 
 
 def _check_name(name: str) -> str:
     name = name.strip()
     if not name or name in (".", "..") or "/" in name or "\\" in name or name.startswith("."):
-        raise HTTPException(400, "Nome non valido")
+        raise HTTPException(400, "Invalid name")
     return name
 
 
 def list_dir(user: User, space: str, rel_path: str) -> List[dict]:
     folder = resolve(user, space, rel_path)
     if not folder.is_dir():
-        raise HTTPException(404, "Cartella non trovata")
+        raise HTTPException(404, "Folder not found")
     entries = []
     for entry in os.scandir(folder):
         if entry.name.startswith("."):
@@ -83,7 +83,7 @@ def list_dir(user: User, space: str, rel_path: str) -> List[dict]:
 def make_dir(user: User, space: str, rel_path: str, name: str) -> None:
     target = resolve(user, space, rel_path) / _check_name(name)
     if target.exists():
-        raise HTTPException(409, "Esiste già")
+        raise HTTPException(409, "Already exists")
     target.mkdir()
 
 
@@ -110,9 +110,9 @@ def chunk_targets(user: User, space: str, rel_path: str, name: str):
 def move_to_trash(user: User, space: str, rel_path: str) -> None:
     target = resolve(user, space, rel_path)
     if target == _space_root(user, space).resolve():
-        raise HTTPException(400, "Impossibile eliminare la radice")
+        raise HTTPException(400, "Can't delete the root folder")
     if not target.exists():
-        raise HTTPException(404, "Non trovato")
+        raise HTTPException(404, "Not found")
     trash = NAS_ROOT / ".trash" / user.id
     trash.mkdir(parents=True, exist_ok=True)
     shutil.move(str(target), str(trash / f"{int(time.time())}_{target.name}"))

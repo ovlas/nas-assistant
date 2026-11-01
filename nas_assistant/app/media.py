@@ -60,15 +60,15 @@ def _video_frame(src: Path) -> Image.Image:
         )
         if result.stdout:
             return Image.open(io.BytesIO(result.stdout))
-    raise HTTPException(415, "Impossibile leggere il video")
+    raise HTTPException(415, "Can't read the video")
 
 
 def thumb_path(src: Path, size: str) -> Path:
     """Where the thumbnail of this version of the file is cached."""
     if size not in THUMB_SIZES or not src.is_file():
-        raise HTTPException(404, "Miniatura non disponibile")
+        raise HTTPException(404, "Thumbnail not available")
     if not kind_of(src.name):
-        raise HTTPException(415, "Formato non supportato")
+        raise HTTPException(415, "Unsupported format")
     stat = src.stat()
     key = hashlib.sha1(f"{src}|{stat.st_mtime_ns}|{stat.st_size}|{size}".encode()).hexdigest()
     return _meta_dir() / "thumbs" / key[:2] / f"{key}.webp"
@@ -88,7 +88,7 @@ def make_thumbnail(src: Path, size: str, out: Path) -> Path:
         img.save(partial, "WEBP", quality=80, method=4)
         os.replace(partial, out)
     except (OSError, SyntaxError, subprocess.TimeoutExpired):
-        raise HTTPException(415, "Impossibile creare la miniatura")
+        raise HTTPException(415, "Can't create the thumbnail")
     return out
 
 

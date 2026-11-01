@@ -1,0 +1,12 @@
+configuration:
+  disk:
+    name: Disque NAS
+    description: UUID ou étiquette du disque dédié au NAS. Laissez vide et choisissez-le depuis l'interface.
+  family_folder_name:
+    name: Nom du dossier partagé
+    description: Nom du dossier partagé avec toute la famille.
+  log_level:
+    name: Niveau de journalisation
+    description: Niveau de détail écrit par le module dans son journal.
+network:
+  8456/tcp: API pour les applications mobiles (LAN / Tailscale)
