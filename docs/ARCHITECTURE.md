@@ -77,7 +77,10 @@ App options: "Wi-Fi only", "only while charging", "only at home".
 
 ## Disk
 
-- The add-on mounts the chosen disk (by UUID) inside its own container on `/nas`.
+- The add-on mounts the chosen disk inside its own container on `/nas`.
+- Recommended: the partition is picked in the add-on `device` option (`device(subsystem=block)`). The Supervisor then
+  grants access to that one device and refuses the system disk, so protection mode stays on.
+  With protection mode off, `full_access` lets the web wizard list and read every disk instead.
 - Supported filesystems: ext4 (recommended), exFAT, NTFS (read-write via ntfs3, ntfs-3g as fallback).
 - Guided setup in the web UI: lists the disks, shows capacity, lets you **use a disk as is** (nothing is deleted)
   or format it (double confirmation).

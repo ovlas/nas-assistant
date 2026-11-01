@@ -1,5 +1,5 @@
 name: NAS Assistant
-version: "0.5.0"
+version: "0.6.0"
 slug: nas_assistant
 description: Your family cloud, at home. A private space for every Home Assistant user, on a disk you choose
 url: https://github.com/ovlas/nas-assistant
@@ -21,9 +21,14 @@ ports_description:
   8456/tcp: API for the mobile apps (LAN / Tailscale)
 homeassistant_api: true
 udev: true
-# Needed to mount the dedicated NAS disk inside the container.
-# Lowers the security rating: to be narrowed once the disk wizard is done.
+# The NAS disk is normally picked in the "device" option: the Supervisor then
+# grants access to that disk only, and protection mode can stay on.
+# full_access is used only with protection mode off, so the setup wizard can
+# list and read every disk.
 full_access: true
+# ntfs-3g fallback for NTFS disks.
+devices:
+  - /dev/fuse
 privileged:
   - SYS_ADMIN
 apparmor: false
@@ -36,6 +41,7 @@ options:
   family_folder_name: Family
   log_level: info
 schema:
+  device: device(subsystem=block)?
   disk: str?
   family_folder_name: str
   log_level: list(debug|info|warning|error)

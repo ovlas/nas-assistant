@@ -1,7 +1,10 @@
 configuration:
+  device:
+    name: Périphérique du disque NAS
+    description: "Choisissez la partition du disque NAS (elle se termine par -part1, -part2…). Recommandé : fonctionne avec le mode protection activé. Redémarrez le module après l'avoir changé."
   disk:
-    name: Disque NAS
-    description: UUID ou étiquette du disque dédié au NAS. Laissez vide et choisissez-le depuis l'interface.
+    name: Disque NAS (avancé)
+    description: "UUID ou étiquette du disque. Utile seulement si vous ne choisissez pas de périphérique ci-dessus ou dans l'interface."
   family_folder_name:
     name: Nom du dossier partagé
     description: Nom du dossier partagé avec toute la famille.

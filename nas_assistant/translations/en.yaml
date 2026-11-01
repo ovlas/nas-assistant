@@ -1,7 +1,10 @@
 configuration:
+  device:
+    name: NAS disk device
+    description: "Pick the partition of the NAS disk (it ends in -part1, -part2…). Recommended: it works with protection mode on. Restart the add-on after changing it."
   disk:
-    name: NAS disk
-    description: UUID or label of the disk dedicated to the NAS. Leave empty to choose it from the interface.
+    name: NAS disk (advanced)
+    description: "UUID or label of the disk. Only needed if you don't pick a device above or in the interface."
   family_folder_name:
     name: Shared folder name
     description: Name of the folder shared with the whole family.

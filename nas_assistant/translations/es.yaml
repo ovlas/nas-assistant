@@ -1,7 +1,10 @@
 configuration:
+  device:
+    name: Dispositivo del disco NAS
+    description: "Elige la partición del disco NAS (termina en -part1, -part2…). Recomendado: funciona con el modo de protección activado. Reinicia el complemento después de cambiarlo."
   disk:
-    name: Disco NAS
-    description: UUID o etiqueta del disco dedicado al NAS. Déjalo vacío y elígelo desde la interfaz.
+    name: Disco NAS (avanzado)
+    description: "UUID o etiqueta del disco. Solo hace falta si no eliges un dispositivo arriba o en la interfaz."
   family_folder_name:
     name: Nombre de la carpeta compartida
     description: Nombre de la carpeta compartida con toda la familia.

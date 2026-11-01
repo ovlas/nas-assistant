@@ -8,8 +8,12 @@ FSTYPE="$(blkid -p -s TYPE -o value "${DEVICE}" 2>/dev/null || true)"
 case "${FSTYPE}" in
     ntfs)
         # Prefer the kernel ntfs3 driver; fall back to ntfs-3g. Never the read-only "ntfs".
-        mount -t ntfs3 -o rw,noatime "${DEVICE}" "${TARGET}" 2>/dev/null \
-            || ntfs-3g -o rw,noatime,big_writes "${DEVICE}" "${TARGET}"
+        if mount -t ntfs3 -o rw,noatime "${DEVICE}" "${TARGET}" 2>/dev/null; then
+            echo "NTFS mounted with the ntfs3 kernel driver"
+        else
+            ntfs-3g -o rw,noatime,big_writes "${DEVICE}" "${TARGET}"
+            echo "NTFS mounted with ntfs-3g"
+        fi
         ;;
     *)
         mount -o rw,noatime "${DEVICE}" "${TARGET}"

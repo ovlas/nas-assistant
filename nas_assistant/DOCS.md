@@ -8,20 +8,28 @@ The interface follows the language of your Home Assistant profile
 
 ## Before you start
 
-- A dedicated USB or SATA disk, any size. Home Assistant backups stay on the main disk and never include NAS files.
-- **Protection mode must be off.** NAS Assistant needs to mount the disk:
-  on this add-on's page, turn off **Protection mode** and restart the add-on.
+You need a dedicated USB or SATA disk, any size. Home Assistant backups stay on the main disk and never include NAS files.
 
 ## Choosing the disk
 
-1. Open **NAS** from the sidebar (as a Home Assistant administrator).
-2. Your disks are listed; the Home Assistant system disk is never shown.
-3. Pick a partition and press **Use as is**: your existing files stay where they are.
-   Supported filesystems: ext4, exFAT, NTFS.
-4. Only if you want a blank disk, use **Erase everything and format**. You will be asked to type a confirmation word.
+**Recommended — protection mode on**
 
-The disk is remembered and mounted again at every restart. If it is unplugged, NAS Assistant
-waits and writes nothing to the main disk.
+1. Plug in the disk, then on this add-on's page open **Configuration**.
+2. In **NAS disk device** pick the partition of your disk (the entry ending in `-part1`, `-part2`, …).
+   The Home Assistant system disk is refused by the Supervisor.
+3. Save and restart the add-on. Your existing files stay where they are: nothing is formatted.
+
+With protection mode on, the add-on can only touch the disk you picked.
+If that disk is unplugged, the add-on will not start until you plug it back in.
+
+**Alternative — protection mode off**
+
+Turn off **Protection mode**, restart the add-on and open **NAS** from the sidebar (as an administrator).
+Your disks are listed (never the Home Assistant system disk): pick a partition and press **Use as is**.
+Only if you want a blank disk, use **Erase everything and format** and type the confirmation word.
+
+Supported filesystems: ext4, exFAT, NTFS. The disk is mounted again at every restart.
+If it is missing, NAS Assistant writes nothing to the main disk.
 
 ## Using it
 
@@ -52,7 +60,8 @@ family/                           shared with everyone
 
 | Option | Description |
 |---|---|
-| `disk` | UUID or label of the NAS disk. Leave empty and choose it from the interface. |
+| `device` | Partition of the NAS disk. Recommended, works with protection mode on. |
+| `disk` | UUID or label of the NAS disk (advanced). |
 | `family_folder_name` | Name of the shared folder. |
 | `log_level` | Log detail. |
 

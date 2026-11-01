@@ -1,7 +1,10 @@
 configuration:
+  device:
+    name: Dispositivo disco NAS
+    description: "Scegli la partizione del disco NAS (finisce con -part1, -part2…). Consigliato: funziona con la modalità protetta attiva. Riavvia l'add-on dopo averla cambiata."
   disk:
-    name: Disco NAS
-    description: UUID o etichetta del disco dedicato al NAS. Lascia vuoto e sceglilo dall'interfaccia.
+    name: Disco NAS (avanzato)
+    description: "UUID o etichetta del disco. Serve solo se non scegli un dispositivo qui sopra o dall'interfaccia."
   family_folder_name:
     name: Nome cartella condivisa
     description: Nome della cartella condivisa con tutta la famiglia.
