@@ -21,7 +21,7 @@ import segno
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
-app = FastAPI(title="NAS Assistant", version="0.12.0")
+app = FastAPI(title="NAS Assistant", version="0.12.1")
 
 # Small boards: decode at most two big images at once. Waiting requests queue
 # here, outside the worker threads, so uploads and browsing never stall behind them.
@@ -75,7 +75,10 @@ def _base_urls() -> dict:
 async def start_pairing(user: User = Depends(current_user)):
     """A one-time QR code (10 minutes) for the mobile app to pair this phone."""
     pairing = devices.start_pairing(user)
-    text = "nasassistant://pair?" + urlencode({"v": 1, "code": pairing["code"], "url": PUBLIC_URL, "lan": LAN_URL})
+    # A web address, so a phone camera without the app opens a page that explains what to do.
+    # The code is after "#": browsers never send that part to the server or to Cloudflare.
+    params = urlencode({"v": 1, "code": pairing["code"], "url": PUBLIC_URL, "lan": LAN_URL})
+    text = f"{PUBLIC_URL or LAN_URL}/pair#{params}"
     svg = io.BytesIO()
     segno.make(text, error="m").save(svg, kind="svg", scale=6, border=2, dark="#0b1f4d", xmldecl=False, svgns=True)
     return {**pairing, "qr": text, "qr_svg": svg.getvalue().decode(), "started": int(time.time())}
@@ -459,6 +462,12 @@ INDEX_HTML = (WEB_DIR / "index.html").read_text().replace("{{version}}", app.ver
 @app.get("/index.html", include_in_schema=False)
 async def index():
     return HTMLResponse(INDEX_HTML, headers={"Cache-Control": UI_CACHE})
+
+
+@app.get("/pair", include_in_schema=False)
+async def pair_page():
+    """Opened by a phone camera that scans the pairing QR without the app installed."""
+    return FileResponse(WEB_DIR / "pair.html", headers={"Cache-Control": UI_CACHE})
 
 
 class WebFiles(StaticFiles):

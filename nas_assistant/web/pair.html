@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="referrer" content="no-referrer">
+  <title>NAS Assistant</title>
+  <link rel="icon" href="logo.svg" type="image/svg+xml">
+  <style>
+    :root { --text: #fff; --muted: rgba(235,240,255,.72); }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px 16px; color: var(--text);
+           font: 16px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+           background: radial-gradient(900px 600px at 15% -10%, #2a7bf0 0%, transparent 60%),
+                       linear-gradient(160deg, #0b3a91 0%, #071d55 60%, #050f33 100%); }
+    .card { width: min(420px, 100%); text-align: center; padding: 32px 24px; border-radius: 24px;
+            background: rgba(16,30,72,.62); backdrop-filter: blur(24px); box-shadow: 0 0 0 1px rgba(255,255,255,.08), 0 18px 50px rgba(0,0,0,.3); }
+    img { width: 84px; }
+    h1 { font-size: 24px; margin: 14px 0 8px; }
+    p { color: var(--muted); margin: 0 0 18px; }
+    .btn { display: block; width: 100%; padding: 13px; border-radius: 14px; border: 0; font: inherit; font-weight: 600;
+           text-decoration: none; color: #fff; background: #2f90dd; margin-top: 10px; }
+    .soon { display: block; margin-top: 18px; font-size: 13px; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <img src="logo.svg" alt="">
+    <h1 id="title"></h1>
+    <p id="text"></p>
+    <a class="btn" id="open"></a>
+    <span class="soon" id="soon"></span>
+  </main>
+  <script>
+    // The pairing code is after "#": browsers never send it to the server or to Cloudflare.
+    const TEXTS = {
+      en: ["Connect this phone", "To back up this phone to NAS Assistant you need the NAS Assistant app. Install it, open it and scan the QR code again from the app.", "Open in the app", "The app for iPhone and Android is coming soon."],
+      it: ["Collega questo telefono", "Per fare il backup di questo telefono su NAS Assistant serve l'app NAS Assistant. Installala, aprila e inquadra di nuovo il QR code dall'app.", "Apri nell'app", "L'app per iPhone e Android è in arrivo."],
+      es: ["Conecta este teléfono", "Para copiar este teléfono en NAS Assistant necesitas la app NAS Assistant. Instálala, ábrela y vuelve a escanear el código QR desde la app.", "Abrir en la app", "La app para iPhone y Android llegará pronto."],
+      fr: ["Connecter ce téléphone", "Pour sauvegarder ce téléphone sur NAS Assistant, il faut l'app NAS Assistant. Installez-la, ouvrez-la et scannez à nouveau le QR code depuis l'app.", "Ouvrir dans l'app", "L'app pour iPhone et Android arrive bientôt."],
+      de: ["Dieses Telefon verbinden", "Um dieses Telefon auf NAS Assistant zu sichern, brauchst du die NAS-Assistant-App. Installiere sie, öffne sie und scanne den QR-Code erneut in der App.", "In der App öffnen", "Die App für iPhone und Android kommt bald."],
+    };
+    const lang = (navigator.languages || [navigator.language]).map((l) => l.slice(0, 2)).find((l) => TEXTS[l]) || "en";
+    const [title, text, open, soon] = TEXTS[lang];
+    document.documentElement.lang = lang;
+    document.getElementById("title").textContent = title;
+    document.getElementById("text").textContent = text;
+    document.getElementById("soon").textContent = soon;
+    const link = document.getElementById("open");
+    link.textContent = open;
+    link.href = "nasassistant://pair?" + location.hash.slice(1);
+  </script>
+</body>
+</html>
