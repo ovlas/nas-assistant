@@ -2,7 +2,7 @@
   <!-- Same house as the Music Assistant icon (color #58B9ED, 45° roof, proportions),
        with a white hard disk inside instead of the "MA" letters. -->
   <g transform="translate(256 256) scale(1.085) translate(-256 -270)">
-    <path d="M256 66 L466 276 L466 474 L46 474 L46 276 Z"
+    <path d="M256 66 L450 260 Q466 276 466 298 L466 474 L46 474 L46 298 Q46 276 62 260 Z"
           fill="#58B9ED" stroke="#58B9ED" stroke-width="44" stroke-linejoin="round"/>
     <!-- hard disk (white, portrait) -->
     <rect x="148" y="232" width="216" height="236" rx="34" fill="#fff"/>
