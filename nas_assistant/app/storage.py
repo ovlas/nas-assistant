@@ -49,12 +49,31 @@ EXTRA_MOUNT = Path(os.environ.get("NAS_STORAGE_ROOT", "/storage"))
 EXTRA_NAME = os.environ.get("NAS_STORAGE_NAME", "") or "Extra disk"
 
 
+def _has_folders(root: Path) -> bool:
+    return (root / "users").is_dir() or (root / "family").is_dir()
+
+
+def _has_files(root: Path) -> bool:
+    """True if anything visible is in its family folder or in a user's space."""
+    def visible(folder: Path) -> bool:
+        try:
+            return any(not p.name.startswith(".") for p in folder.iterdir())
+        except OSError:
+            return False
+    users = root / "users"
+    return visible(root / "family") or (users.is_dir() and any(visible(u) for u in users.iterdir() if u.is_dir()))
+
+
 def data_root(mount: Path, fresh: Path) -> Path:
-    """Where NAS Assistant's folders are on a disk; `fresh` for a disk never used yet."""
+    """Where NAS Assistant's folders are on a disk; `fresh` for a disk never used yet.
+    A former NAS disk keeps them at its root; an extra disk in "NAS Assistant/". If both
+    exist (e.g. empty folders made by an older version), the one holding files wins."""
     sub = mount / DATA_FOLDER
-    if (sub / "users").is_dir() or (sub / "family").is_dir():
+    if _has_folders(sub) and _has_folders(mount):
+        return mount if _has_files(mount) and not _has_files(sub) else sub
+    if _has_folders(sub):
         return sub
-    if (mount / "users").is_dir() or (mount / "family").is_dir():
+    if _has_folders(mount):
         return mount
     return fresh
 
