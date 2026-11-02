@@ -44,6 +44,9 @@ BY_ID = Path(os.environ.get("NAS_BY_ID_DIR", "/dev/disk/by-id"))
 INIT_LABELS = {"backup": "NAS Backup", "storage": "NAS Storage"}
 MOUNTS = {"backup": Path(os.environ.get("NAS_BACKUP_ROOT", "/backup")),
           "storage": Path(os.environ.get("NAS_STORAGE_ROOT", "/storage"))}
+# Device node -> by-id name, refreshed by the plug-and-play watcher: needed to remember a
+# disk after it was unplugged, when its by-id link no longer exists.
+_known_ids: Dict[str, str] = {}
 # Disks ejected safely: their role is remembered so they can be put back with one tap.
 EJECTED_FILE = Path(os.environ.get("NAS_EJECTED_FILE", "/data/ejected.json"))
 
@@ -163,9 +166,12 @@ async def _restart_soon() -> None:
 
 async def set_role(device_id: str, role: Optional[str]) -> None:
     """Give a disk the backup or storage role, move it from one role to the other,
-    or (role None) stop using it. Nothing on the disk is erased. Restarts to apply."""
-    if role not in (None, *ROLES):
+    or (role None) stop using it. Role "nas" makes it the NAS disk, only while there is no
+    working one (to swap disks). Nothing on the disk is erased. Restarts to apply."""
+    if role not in (None, "nas", *ROLES):
         raise HTTPException(400, "Unknown role")
+    if role == "nas" and disks.state() == "mounted":
+        raise HTTPException(409, "The NAS disk is already configured")
     by_id = _by_id()
     current = {r: by_id.get(device, "") for r, (_, device, _, _) in ROLES.items()}
     disks_now = overview()
@@ -182,7 +188,7 @@ async def set_role(device_id: str, role: Optional[str]) -> None:
         if options.get(option) and os.path.realpath(options[option]) == os.path.realpath(device_id):
             options.pop(option)
     if role:
-        options[ROLES[role][0]] = device_id
+        options["device" if role == "nas" else ROLES[role][0]] = device_id
     await _supervisor("POST", "/addons/self/options", {"options": options})
     ejected = _ejected()
     if ejected.pop(device_id, None):

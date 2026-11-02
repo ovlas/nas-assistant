@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from urllib.parse import urlencode
 
-from . import albums, backup, devices, diskadmin, disks, favorites, media, storage
+from . import albums, backup, devices, diskadmin, disks, favorites, media, plugplay, storage
 from .auth import User, admin_user, avatar, current_user
 from .kinds import media_kind
 
@@ -23,7 +23,7 @@ import segno
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
-app = FastAPI(title="NAS Assistant", version="0.16.1")
+app = FastAPI(title="NAS Assistant", version="0.17.0")
 
 # Small boards: decode at most two big images at once. Waiting requests queue
 # here, outside the worker threads, so uploads and browsing never stall behind them.
@@ -33,6 +33,11 @@ _thumb_slots = asyncio.Semaphore(2)
 @app.on_event("startup")
 async def start_backup_scheduler():
     asyncio.get_running_loop().create_task(backup.scheduler())
+
+
+@app.on_event("startup")
+async def start_disk_watch():
+    asyncio.get_running_loop().create_task(plugplay.watch())
 
 
 @app.on_event("startup")
@@ -272,7 +277,10 @@ async def me(user: User = Depends(current_user)):
 @app.get("/api/status")
 async def status(user: User = Depends(current_user)):
     state = disks.state()
-    return {"disk": state, "usage": storage.usage() if state == "mounted" else None}
+    result = {"disk": state, "usage": storage.usage() if state == "mounted" else None}
+    if user.is_admin:
+        result["new_disks"] = list(plugplay.new_disks.values())  # plugged in, waiting for a choice
+    return result
 
 
 @app.get("/api/disks")
@@ -305,7 +313,16 @@ async def set_disk_role(request: Request, user: User = Depends(admin_user)):
     """role: backup, storage or none. The add-on restarts to apply it; nothing is erased."""
     device_id, role = await _fields(request, "id", "role")
     await diskadmin.set_role(device_id, None if role == "none" else role)
+    plugplay.forget_new(device_id)
     return {"ok": True, "restarting": True}
+
+
+@app.post("/api/disks/dismiss")
+async def dismiss_new_disk(request: Request, user: User = Depends(admin_user)):
+    """"Not now" on the new-disk banner."""
+    (device_id,) = await _fields(request, "id")
+    plugplay.forget_new(device_id)
+    return {"ok": True}
 
 
 @app.post("/api/disks/eject")

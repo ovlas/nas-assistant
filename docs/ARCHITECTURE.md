@@ -105,6 +105,7 @@ App options: "Wi-Fi only", "only while charging", "only at home".
 - [x] Files as list, icons or grid; Home Assistant profile picture
 - [x] iCloud-style welcome page
 - [x] Collections (albums, dossiers), safe eject of extra disks
+- [x] Disk plug and play (watch /dev/disk/by-id, restore roles, announce new disks, swap the NAS disk)
 - [x] Favorites for files, folders, photos and videos
 - [x] Recently deleted with restore, delete forever and undo; inline rename
 - [x] Multilingual UI (English, Italiano, Español, Français, Deutsch)

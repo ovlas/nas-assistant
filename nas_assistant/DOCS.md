@@ -52,6 +52,21 @@ what each one is used for and how full it is. A free disk can be given a role, a
   initialized or given a role.
 - A disk that doesn't appear is not visible to Home Assistant itself: check its power supply, cable and USB port.
 
+## Plug and play
+
+NAS Assistant watches disks being plugged in and out:
+
+- **A disk it already knows comes back** (the backup or extra-storage disk, or the NAS disk): it takes its role back
+  on its own. NAS Assistant restarts for a few seconds, which Home Assistant needs to grant access to a disk.
+- **A disk in use is unplugged without Eject**: it is unmounted and its role remembered for when it comes back. For
+  the NAS disk the NAS pauses. Unplugging while files are being written can damage them: use **Eject** when you can.
+- **A new disk is plugged in**: nothing is decided for you. A Home Assistant notification and a banner in NAS Assistant
+  ask what to use it for (backup or extra storage, from the Disks page).
+- **Changing the NAS disk**: while no NAS disk is connected, the start page lists the other disks with
+  **Use as the NAS disk**, used as they are. The old disk's files come back when you switch back to it.
+
+Nothing is ever formatted automatically.
+
 ## Backup to a second disk
 
 Pick a free disk with **Use for backups** on the Disks page (or choose its partition in **Backup disk** in the

@@ -1756,9 +1756,13 @@ $("new-folder").onclick = async () => {
 
 // --- Disk status and setup wizard --------------------------------------------
 
+let lastDiskState = null;
+
 async function loadStatus() {
   try {
-    const { disk, usage } = await api("api/status");
+    const { disk, usage, new_disks: newDisks } = await api("api/status");
+    lastDiskState = disk;
+    showDiskBanner(newDisks || []);
     showSetup(disk !== "mounted", disk);
     if (disk !== "mounted") {
       $("disk-label").textContent = t(disk === "missing" ? "diskMissing" : disk === "ejected" ? "diskEjectedShort" : "diskNone");
@@ -1802,11 +1806,72 @@ function showSetup(visible, disk) {
     $("disk-refresh").hidden = true;
     return;
   }
-  if (disk === "missing") {
-    $("setup-lead").textContent = t("setupMissing");
-  }
-  loadDisks();
+  $("setup-lead").textContent = t(disk === "missing" ? "nasUnplugged" : "setupLead");
+  loadNasCandidates();
 }
+
+// No NAS disk (unplugged, or never set): plugging it back is enough, or pick another
+// disk to be the NAS disk, used as it is.
+async function loadNasCandidates() {
+  const list = $("disk-list");
+  list.replaceChildren(el("p", "lead", t("searchingDisks")));
+  let info;
+  try {
+    info = await api("api/disks/overview");
+  } catch {
+    return loadDisks();  // the classic setup (protection mode off)
+  }
+  list.replaceChildren();
+  for (const disk of info.disks) {
+    for (const part of disk.partitions) {
+      if (part.role !== "free" || !part.id || part.same_disk_as_nas) continue;
+      const card = el("div", "disk-item");
+      const badge = el("div", "disk-icon");
+      badge.append(iconEl("disk"));
+      const text = el("div", "disk-info");
+      text.append(el("div", "disk-title", disk.model),
+        el("div", "disk-sub", [part.label, FS_NAMES[part.fstype] || part.fstype, formatSize(part.size)].filter(Boolean).join(" · ")));
+      const use = el("button", "btn primary", t("useAsNas"));
+      use.onclick = () => diskAction(t("confirmUseAsNas", { name: disk.model }), () => post("api/disks/role", { id: part.id, role: "nas" }));
+      text.append(use);
+      card.append(badge, text);
+      list.append(card);
+    }
+  }
+  if (!list.children.length) list.append(el("p", "lead", t("diskNotListed")));
+  const more = el("button", "btn link subtle", t("moreOptions"));
+  more.onclick = loadDisks;
+  list.append(more);
+}
+
+// "New disk connected": the user decides what it is for.
+function showDiskBanner(newDisks) {
+  const banner = $("disk-banner");
+  banner.hidden = !newDisks.length;
+  banner.replaceChildren();
+  for (const disk of newDisks) {
+    const row = el("div", "disk-banner-row");
+    row.append(iconEl("disk"), el("span", "", t("newDiskBanner", { name: disk.name })));
+    const choose = el("button", "btn primary", t("chooseUse"));
+    choose.onclick = () => go("personal", "disks");
+    const later = el("button", "btn", t("notNow"));
+    later.onclick = async () => { await post("api/disks/dismiss", { id: disk.id }); loadStatus(); };
+    row.append(choose, later);
+    banner.append(row);
+  }
+}
+
+// Plug and play: notice disks coming and going without reloading the page.
+setInterval(async () => {
+  if (!$("viewer").hidden) return;
+  try {
+    const { disk, new_disks: newDisks } = await api("api/status");
+    showDiskBanner(newDisks || []);
+    if (disk === lastDiskState) return;
+    if (disk === "mounted" && lastDiskState !== null) return location.reload();  // the NAS is back
+    loadStatus();
+  } catch { /* restarting: try again at the next tick */ }
+}, 10000);
 
 async function loadDisks() {
   const list = $("disk-list");

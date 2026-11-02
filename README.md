@@ -15,6 +15,7 @@ plus a folder shared with the whole family, on a dedicated disk of your choice.
 - ❤️ Favorites for photos, videos, files and folders
 - 🗂️ Files catalogued by type (photos, videos, music, documents, archives); rename and move with a menu or drag and drop
 - ♻️ Recently deleted: undo, restore to the original folder, or delete forever
+- 🔌 Plug and play: known disks are taken back by themselves, new ones announced with a Home Assistant notification
 - 💽 Disks page: give a new disk a role (nightly backup or extra storage) and change it any time; initialize it only if you decide
 - 🛡️ Add a second disk and nightly backups unlock: incremental copies with 30 days of previous versions
 - 💽 Dedicated disk, any size: HA backups stay on the main disk
