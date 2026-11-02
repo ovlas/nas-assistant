@@ -1092,6 +1092,7 @@ function diskCard(disk, info, taken) {
       fill.style.width = `${(part.usage.used / part.usage.total) * 100}%`;
       bar.append(fill);
       row.append(bar, el("div", "card-sub", t("diskFree", { free: formatSize(part.usage.free), total: formatSize(part.usage.total) })));
+      if (part.files != null) row.append(el("div", "card-sub", t("nasFiles", { n: part.files })));
     }
     const actions = el("div", "part-actions");
     if (part.role === "nas") {

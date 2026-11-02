@@ -86,6 +86,26 @@ def _usage(root: Path) -> Optional[dict]:
         return None
 
 
+_counts: Dict[str, tuple] = {}  # data root -> (when, count)
+
+
+def _nas_files(mount: Path) -> Optional[int]:
+    """How many NAS Assistant files a disk holds (its users/ and family/ folders), cached a minute."""
+    root = storage.data_root(mount, mount)
+    cached = _counts.get(str(root))
+    if cached and time.time() - cached[0] < 60:
+        return cached[1]
+    count = 0
+    for top in ("users", "family"):
+        for _, dirs, files in os.walk(root / top):
+            dirs[:] = [d for d in dirs if not d.startswith(".")]
+            count += sum(1 for f in files if not f.startswith("."))
+            if count > 100000:
+                break
+    _counts[str(root)] = (time.time(), count)
+    return count
+
+
 def overview(include_system: bool = False) -> List[dict]:
     """Physical disks with their partitions and roles: nas, backup, storage or free.
     The Home Assistant system disk is left out, unless the safety checks ask for it."""
@@ -123,6 +143,9 @@ def overview(include_system: bool = False) -> List[dict]:
                          _usage(backup.ROOT) if role == "backup" and backup.STATE == "mounted" else
                          _usage(Path(os.environ.get("NAS_STORAGE_ROOT", "/storage")))
                          if role == "storage" and ROLES["storage"][2] == "mounted" else None,
+                "files": _nas_files(disks.NAS_ROOT) if role == "nas" and disks.state() == "mounted" else
+                         _nas_files(storage.EXTRA_MOUNT) if role == "storage" and ROLES["storage"][2] == "mounted"
+                         else None,
                 "state": ROLES[role][2] if role in ROLES else disks.state() if role == "nas" else "",
                 # Ejected earlier from this role: offer to put it back.
                 "was": _ejected().get(by_id.get(node["path"], ""), {}).get("role", "") if role == "free" else "",
