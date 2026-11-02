@@ -9,7 +9,11 @@
 </head>
 <body>
   <aside class="sidebar">
-    <div class="brand"><img src="logo.svg" alt=""><span>NAS Assistant</span></div>
+    <div class="brand">
+      <button class="icon-btn ha-button" id="ha-menu" data-i18n-title="haMenu" hidden><i data-icon="homeAssistant"></i></button>
+      <img src="logo.svg?v={{version}}" alt=""><span>NAS Assistant</span>
+      <button class="icon-btn collapse-button" id="collapse" data-i18n-title="collapse"><i data-icon="sidebar"></i></button>
+    </div>
     <nav id="nav">
       <button class="nav-item nav-home" data-space="personal" data-view="home"><i data-icon="home"></i><span class="l" data-i18n="home"></span><span class="s" data-i18n="home"></span></button>
       <div class="nav-group" data-i18n="mySpace"></div>
@@ -19,6 +23,8 @@
       <div class="nav-group" data-i18n="family"></div>
       <button class="nav-item" data-space="family" data-view="photos"><i data-icon="family"></i><span class="l" data-i18n="familyPhotos"></span><span class="s" data-i18n="familyShort"></span></button>
       <button class="nav-item" data-space="family" data-view="files"><i data-icon="share"></i><span class="l" data-i18n="sharedFiles"></span><span class="s" data-i18n="sharedShort"></span></button>
+      <div class="nav-group nav-admin" data-i18n="system" hidden></div>
+      <button class="nav-item nav-admin nav-disks" data-space="personal" data-view="disks" hidden><i data-icon="disk"></i><span class="l" data-i18n="disksTitle"></span><span class="s" data-i18n="disksTitle"></span></button>
     </nav>
     <div class="side-footer">
       <div class="disk-card">
@@ -29,6 +35,7 @@
     </div>
   </aside>
 
+  <button class="ha-fab" id="ha-menu-fab" data-i18n-title="haMenu" hidden><i data-icon="homeAssistant"></i></button>
   <main id="main">
     <header class="topbar" id="topbar">
       <div class="titles">
@@ -50,6 +57,7 @@
     <nav class="crumbs" id="crumbs"></nav>
 
     <section id="home" class="home" hidden></section>
+    <section id="disks" class="disks" hidden></section>
     <section id="gallery" class="gallery"></section>
     <section id="files" class="file-list"></section>
     <div class="empty" id="empty" hidden>

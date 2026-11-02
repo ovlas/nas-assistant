@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from urllib.parse import urlencode
 
-from . import backup, devices, disks, favorites, media, storage
+from . import backup, devices, diskadmin, disks, favorites, media, storage
 from .auth import User, admin_user, avatar, current_user
 from .kinds import media_kind
 
@@ -23,7 +23,7 @@ import segno
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
-app = FastAPI(title="NAS Assistant", version="0.13.0")
+app = FastAPI(title="NAS Assistant", version="0.14.0")
 
 # Small boards: decode at most two big images at once. Waiting requests queue
 # here, outside the worker threads, so uploads and browsing never stall behind them.
@@ -292,6 +292,34 @@ async def _fields(request: Request, *names: str, optional: tuple = ()) -> list:
     if not all(isinstance(v, str) and (v or n in optional) for n, v in zip(names, values)):
         raise HTTPException(422, f"Required fields: {', '.join(names)}")
     return values
+
+
+@app.get("/api/disks/overview")
+def disks_overview(user: User = Depends(admin_user)):
+    return {"disks": diskadmin.overview(), "backup": {"state": backup.STATE, "fstype": diskadmin.BACKUP_FSTYPE},
+            "nas": disks.state()}
+
+
+@app.post("/api/disks/backup")
+async def choose_backup_disk(request: Request, user: User = Depends(admin_user)):
+    """Give a free disk the backup role; the add-on restarts to apply it."""
+    (device_id,) = await _fields(request, "id")
+    await diskadmin.set_backup_device(device_id)
+    return {"ok": True, "restarting": True}
+
+
+@app.delete("/api/disks/backup")
+async def remove_backup_disk(user: User = Depends(admin_user)):
+    await diskadmin.set_backup_device(None)
+    return {"ok": True, "restarting": True}
+
+
+@app.post("/api/disks/initialize")
+async def initialize_backup_disk(request: Request, user: User = Depends(admin_user)):
+    """Erase the backup disk and make it ext4, only when its filesystem can't be used."""
+    (confirm,) = await _fields(request, "confirm")
+    await diskadmin.initialize(confirm)
+    return {"ok": True, "restarting": True}
 
 
 @app.post("/api/disks/use")

@@ -72,11 +72,22 @@ if bashio::var.has_value "${BACKUP_OPTION}"; then
                 bashio::log.warning "NAS and backup are partitions of the same physical disk."
             fi
         else
-            bashio::log.error "Can't mount the backup disk ${BACKUP_DEVICE}."
-            export NAS_BACKUP_STATE=missing
+            # A disk the NAS can't use as is (new, or e.g. formatted for a Mac): offer to initialize it.
+            BACKUP_FSTYPE="$(blkid -p -s TYPE -o value "${BACKUP_DEVICE}" 2>/dev/null || true)"
+            case "${BACKUP_FSTYPE}" in
+                ext4|exfat|ntfs)
+                    bashio::log.error "Can't mount the backup disk ${BACKUP_DEVICE}."
+                    export NAS_BACKUP_STATE=missing ;;
+                *)
+                    bashio::log.warning "The backup disk has no usable filesystem (${BACKUP_FSTYPE:-none}): initialize it from the Disks page."
+                    export NAS_BACKUP_STATE=uninitialized
+                    export NAS_BACKUP_FSTYPE="${BACKUP_FSTYPE}" ;;
+            esac
         fi
     fi
 fi
+export NAS_DEVICE="${DEVICE:-}"
+export NAS_BACKUP_DEVICE="${BACKUP_DEVICE:-}"
 
 cd /opt/nas_assistant
 exec python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8456 --log-level "${NAS_LOG_LEVEL}"

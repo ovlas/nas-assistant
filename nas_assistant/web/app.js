@@ -31,6 +31,8 @@ const ICON_PATHS = {
   archive: '<rect x="3.5" y="4" width="17" height="5" rx="1.5"/><path d="M5 9v9.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V9M10 13h4"/>',
   more: '<circle cx="5.5" cy="12" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/><circle cx="18.5" cy="12" r="1.3" fill="currentColor"/>',
   rename: '<path d="M14.5 5.5l4 4M4 20l1-4.5L15.8 4.7a1.8 1.8 0 0 1 2.5 0l1 1a1.8 1.8 0 0 1 0 2.5L8.5 19z"/>',
+  homeAssistant: '<path fill="currentColor" stroke="none" d="M21.8,13H20V21H13V17.67L15.79,14.88L16.5,15C17.66,15 18.6,14.06 18.6,12.9C18.6,11.74 17.66,10.8 16.5,10.8A2.1,2.1 0 0,0 14.4,12.9L14.5,13.61L13,15.13V9.65C13.66,9.29 14.1,8.6 14.1,7.8A2.1,2.1 0 0,0 12,5.7A2.1,2.1 0 0,0 9.9,7.8C9.9,8.6 10.34,9.29 11,9.65V15.13L9.5,13.61L9.6,12.9A2.1,2.1 0 0,0 7.5,10.8A2.1,2.1 0 0,0 5.4,12.9A2.1,2.1 0 0,0 7.5,15L8.21,14.88L11,17.67V21H4V13H2.25C1.83,13 1.42,13 1.42,12.79C1.43,12.57 1.85,12.15 2.28,11.72L11,3C11.33,2.67 11.67,2.33 12,2.33C12.33,2.33 12.67,2.67 13,3L17,7V6H19V9L21.78,11.78C22.18,12.18 22.59,12.59 22.6,12.8C22.6,13 22.2,13 21.8,13M7.5,12A0.9,0.9 0 0,1 8.4,12.9A0.9,0.9 0 0,1 7.5,13.8A0.9,0.9 0 0,1 6.6,12.9A0.9,0.9 0 0,1 7.5,12M16.5,12C17,12 17.4,12.4 17.4,12.9C17.4,13.4 17,13.8 16.5,13.8A0.9,0.9 0 0,1 15.6,12.9A0.9,0.9 0 0,1 16.5,12M12,6.9C12.5,6.9 12.9,7.3 12.9,7.8C12.9,8.3 12.5,8.7 12,8.7C11.5,8.7 11.1,8.3 11.1,7.8C11.1,7.3 11.5,6.9 12,6.9Z"/>',
+  sidebar: '<rect x="3.5" y="4.5" width="17" height="15" rx="3"/><path d="M9.5 4.5v15"/>',
   layoutList: '<path d="M8.5 6.5h11M8.5 12h11M8.5 17.5h11"/><circle cx="4.8" cy="6.5" r=".9" fill="currentColor"/><circle cx="4.8" cy="12" r=".9" fill="currentColor"/><circle cx="4.8" cy="17.5" r=".9" fill="currentColor"/>',
   layoutIcons: '<rect x="4" y="4" width="6.5" height="6.5" rx="1.6"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.6"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.6"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.6"/>',
   layoutGrid: '<rect x="3.5" y="4" width="17" height="10" rx="2"/><path d="M3.5 18h7M13.5 18h7"/>',
@@ -126,7 +128,7 @@ function setHeader(title, subtitle) {
   $("new-folder").hidden = state.view !== "files";
   $("layout-switch").hidden = state.view !== "files";
   document.querySelectorAll("#layout-switch button").forEach((b) => b.classList.toggle("active", b.dataset.layout === state.layout));
-  $("upload-btn").hidden = state.view === "trash";
+  $("upload-btn").hidden = state.view === "trash" || state.view === "disks";
   $("empty-trash").hidden = true;
 }
 
@@ -147,10 +149,13 @@ function render() {
   $("crumbs").innerHTML = "";
   $("chips").innerHTML = "";
   $("home").replaceChildren();
+  $("disks").replaceChildren();
+  $("disks").hidden = state.view !== "disks";
   showEmpty(null);
   document.body.classList.toggle("on-home", state.view === "home");
   $("home").hidden = state.view !== "home";
   if (state.view === "home") return renderHome();
+  if (state.view === "disks") return renderDisks();
   if (state.view === "trash") return renderTrash();
   return state.view === "photos" ? renderGallery() : renderFiles();
 }
@@ -793,6 +798,133 @@ function trashCard(count) {
     count ? t("itemCount", { n: count }) : t("trashEmptyTitle"), () => go("personal", "trash"));
   return node;
 }
+
+// --- Disks (administrators) -----------------------------------------------------
+
+const ROLE_LABELS = { nas: "roleNas", backup: "roleBackup", system: "roleSystem", free: "roleFree" };
+
+async function renderDisks() {
+  setHeader(t("disksTitle"), t("disksSub"));
+  const seq = renderSeq;
+  let info;
+  try {
+    info = await api("api/disks/overview");
+  } catch (err) {
+    return stale(seq) || showEmpty(t("disksLoadError"), err.message);
+  }
+  if (stale(seq)) return;
+  const page = $("disks");
+  const backupSet = info.disks.some((d) => d.partitions.some((p) => p.role === "backup"));
+  for (const disk of info.disks) page.append(diskCard(disk, info, backupSet));
+  page.append(el("p", "notice hint", t("diskNotListed")));
+}
+
+function diskCard(disk, info, backupSet) {
+  const node = el("section", "card disk-card-big" + (disk.system ? " system" : ""));
+  const head = el("header", "card-head");
+  const appIcon = el("div", "app-icon");
+  appIcon.style.background = disk.system ? APP_COLORS.trash : APP_COLORS.files;
+  appIcon.append(iconEl("disk"));
+  const titles = el("div", "card-titles");
+  titles.append(el("h2", "", disk.model),
+    el("div", "card-sub", [formatSize(disk.size), disk.transport, disk.path].filter(Boolean).join(" · ")));
+  head.append(appIcon, titles);
+  node.append(head);
+
+  const body = el("div", "card-body");
+  for (const part of disk.partitions) {
+    const row = el("div", "part");
+    const top = el("div", "part-top");
+    top.append(el("span", `role role-${part.role}`, t(ROLE_LABELS[part.role])),
+      el("span", "part-name", [part.label || part.path.split("/").pop(),
+        FS_NAMES[part.fstype] || part.fstype || t("fsUnknown"), formatSize(part.size)].join(" · ")));
+    row.append(top);
+    if (part.usage) {
+      const bar = el("div", "bar");
+      const fill = el("div", "bar-fill");
+      fill.style.width = `${(part.usage.used / part.usage.total) * 100}%`;
+      bar.append(fill);
+      row.append(bar, el("div", "card-sub", t("diskFree", { free: formatSize(part.usage.free), total: formatSize(part.usage.total) })));
+    }
+    const actions = el("div", "part-actions");
+    if (part.role === "nas") {
+      row.append(el("div", "card-sub", t("nasProtected")));
+    } else if (part.role === "system") {
+      row.append(el("div", "card-sub", t("systemProtected")));
+    } else if (part.role === "backup") {
+      if (info.backup.state === "uninitialized") {
+        row.append(el("p", "notice", t("needsInit", { fs: FS_NAMES[part.fstype] || part.fstype || t("fsNone") })));
+        const init = el("button", "btn danger", t("initialize"));
+        init.onclick = () => askInitialize(disk, part);
+        actions.append(init);
+      }
+      const stop = el("button", "btn", t("stopBackup"));
+      stop.onclick = () => diskAction(t("confirmStopBackup"), () => api("api/disks/backup", { method: "DELETE" }));
+      actions.append(stop);
+    } else if (part.same_disk_as_nas) {
+      row.append(el("div", "card-sub", t("sameDiskAsNas")));
+    } else if (part.id && !backupSet) {
+      const use = el("button", "btn primary", t("useForBackup"));
+      use.onclick = () => diskAction(t("confirmUseBackup", { name: disk.model }),
+        () => post("api/disks/backup", { id: part.id }));
+      actions.append(use);
+    }
+    if (actions.children.length) row.append(actions);
+    body.append(row);
+  }
+  node.append(body);
+  return node;
+}
+
+// Changing disks restarts the add-on: wait for it to come back, then reload the page.
+async function diskAction(question, action) {
+  if (!confirm(question)) return;
+  try {
+    await action();
+  } catch (err) {
+    return alert(err.message);
+  }
+  showEmpty(t("restarting"), t("restartingText"));
+  $("disks").hidden = true;
+  await sleep(6000);
+  for (let i = 0; i < 60; i++) {
+    try { await api("api/status"); return location.reload(); } catch { await sleep(2000); }
+  }
+}
+
+function askInitialize(disk, part) {
+  const dialog = $("format-dialog");
+  const name = el("span", "", `${disk.model} (${formatSize(part.size)})`).innerHTML;
+  $("format-text").innerHTML = t("initText", { name });
+  $("format-word").innerHTML = t("formatConfirm", { word: t("formatWord") });
+  $("format-confirm").value = "";
+  dialog.onclose = () => {
+    const typed = $("format-confirm").value.trim().toUpperCase();
+    if (dialog.returnValue !== "ok") return;
+    if (typed !== t("formatWord")) return alert(tError("Formatting not confirmed"));
+    diskAction(t("confirmInitialize"), () => post("api/disks/initialize", { confirm: "FORMAT" }));
+  };
+  dialog.showModal();
+}
+
+// --- Home Assistant sidebar and our own collapsible sidebar ---------------------
+
+// Inside Home Assistant (Ingress) ask it to hide its own sidebar and header, like
+// Music Assistant does; the Home Assistant button brings its menu back.
+if (window.parent !== window) {
+  window.parent.postMessage({ type: "home-assistant/subscribe-properties", kioskMode: true }, "*");
+  for (const id of ["ha-menu", "ha-menu-fab"]) {
+    $(id).hidden = false;
+    $(id).onclick = () => window.parent.postMessage({ type: "home-assistant/toggle-menu" }, "*");
+  }
+}
+
+function setCollapsed(collapsed) {
+  document.body.classList.toggle("nav-collapsed", collapsed);
+  try { localStorage.setItem("nas-sidebar", collapsed ? "collapsed" : "open"); } catch { /* not remembered */ }
+}
+try { setCollapsed(localStorage.getItem("nas-sidebar") === "collapsed"); } catch { /* default: open */ }
+$("collapse").onclick = () => setCollapsed(!document.body.classList.contains("nav-collapsed"));
 
 // --- Recently deleted ---------------------------------------------------------
 
@@ -1479,6 +1611,7 @@ paintIcons();
 api("api/me")
   .then((u) => {
     state.user = u;
+    document.querySelectorAll(".nav-admin").forEach((node) => { node.hidden = !u.is_admin; });
     const avatar = avatarEl("avatar", u.display_name);
     $("user").append(avatar, el("span", "", u.display_name));
   })

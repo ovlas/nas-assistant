@@ -26,6 +26,24 @@ i[data-icon] svg { width: 100%; height: 100%; }
            position: sticky; top: 0; height: 100vh; align-self: flex-start; }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 17px; padding: 4px 10px 14px; }
 .brand img { width: 30px; height: 30px; }
+.brand .icon-btn { width: 32px; height: 32px; color: var(--muted); flex: none; }
+.brand .icon-btn i { width: 20px; height: 20px; }
+.brand .collapse-button { margin-left: auto; }
+.ha-button { color: #18bcf2 !important; }
+.ha-fab { display: none; }
+
+/* Collapsed sidebar: icons only, like Music Assistant (wide screens; phones have the tab bar) */
+@media (min-width: 761px) {
+  .sidebar { transition: width .2s; }
+  body.nav-collapsed .sidebar { width: 76px; padding-left: 10px; padding-right: 10px; }
+  body.nav-collapsed .brand { flex-direction: column; gap: 10px; padding: 4px 0 14px; }
+  body.nav-collapsed .brand span, body.nav-collapsed .nav-group, body.nav-collapsed .nav-item .l,
+  body.nav-collapsed .disk-card, body.nav-collapsed .user span { display: none; }
+  body.nav-collapsed .brand .collapse-button { margin-left: 0; order: 3; }
+  body.nav-collapsed .nav-item { justify-content: center; padding: 10px 0; }
+  body.nav-collapsed .nav-group + .nav-item { margin-top: 14px; }
+  body.nav-collapsed .user { justify-content: center; padding: 0; }
+}
 nav#nav { display: flex; flex-direction: column; gap: 2px; }
 .nav-group { font-size: 12px; font-weight: 600; color: var(--muted); padding: 14px 10px 4px; text-transform: uppercase; letter-spacing: .04em; }
 .nav-item { display: flex; align-items: center; gap: 10px; text-align: left; padding: 8px 10px; border: 0;
@@ -301,6 +319,22 @@ dialog input { width: 100%; padding: 9px 10px; border-radius: 9px; border: 1px s
 .snack button:hover { background: rgba(255,255,255,.1); }
 @media (prefers-color-scheme: dark) { .snack { background: #3a3a3e; } }
 
+/* --- Disks page ---------------------------------------------------------- */
+.disks { display: flex; flex-direction: column; gap: 18px; max-width: 900px; }
+.disk-card-big.system { opacity: .7; }
+.part { width: 100%; display: flex; flex-direction: column; gap: 8px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.part:last-child { border-bottom: 0; padding-bottom: 0; }
+.part-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.part-name { font-weight: 500; }
+.part .bar { margin: 0; max-width: 420px; }
+.part-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.role { font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 999px; letter-spacing: .02em; }
+.role-nas { background: rgba(88,185,237,.2); color: #58b9ed; }
+.role-backup { background: rgba(94,92,230,.22); color: #8e8cff; }
+.role-system { background: rgba(142,142,147,.22); color: var(--muted); }
+.role-free { background: rgba(48,209,88,.18); color: #30d158; }
+.notice.hint { background: var(--panel); color: var(--muted); box-shadow: var(--shadow); }
+
 /* --- Action menu, move dialog ------------------------------------------ */
 .menu { backdrop-filter: blur(24px) saturate(160%); position: fixed; z-index: 50; min-width: 210px; padding: 6px; border-radius: 13px; background: var(--panel);
         box-shadow: 0 0 0 1px var(--line), 0 12px 40px rgba(0,0,0,.2); }
@@ -358,7 +392,12 @@ dialog input { width: 100%; padding: 9px 10px; border-radius: 9px; border: 1px s
   .layout-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px !important; }
   .cell .row-actions { opacity: 1; }
   .mosaic { grid-template-columns: repeat(4, 1fr); }
-  .nav-trash { display: none !important; }
+  .nav-trash, .nav-disks { display: none !important; }
+  .ha-fab:not([hidden]) { display: grid; place-items: center; position: fixed; top: calc(10px + env(safe-area-inset-top)); left: 10px;
+                          z-index: 25; width: 38px; height: 38px; border: 0; border-radius: 12px; color: #18bcf2;
+                          background: var(--panel); backdrop-filter: blur(20px); box-shadow: var(--shadow); }
+  .ha-fab i { width: 22px; height: 22px; }
+  main { padding-top: 58px; }
   .cloud { width: 120px; height: 120px; }
   .big-avatar { width: 104px; height: 104px; font-size: 44px; }
   .trash-row { grid-template-columns: 44px 1fr auto; }

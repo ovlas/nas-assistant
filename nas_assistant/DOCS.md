@@ -31,10 +31,24 @@ Only if you want a blank disk, use **Erase everything and format** and type the 
 Supported filesystems: ext4, exFAT, NTFS. The disk is mounted again at every restart.
 If it is missing, NAS Assistant writes nothing to the main disk.
 
+## Disks
+
+Administrators find **Disks** in the sidebar: every disk Home Assistant sees, with its role (NAS disk, backup disk,
+Home Assistant system, free) and how full it is.
+
+- **Use for backups** gives a free disk the backup role: NAS Assistant sets its own *Backup disk* option and restarts.
+  Nothing on the disk is erased.
+- If the NAS can't use the disk's filesystem (a brand new disk, or one formatted for a Mac), **Initialize…** appears.
+  It runs only when you press it and type the confirmation word; it erases that disk and makes it ext4.
+- The NAS disk, any other partition of the same physical disk, and the Home Assistant system disk are never
+  initialized.
+- A disk that doesn't appear is not visible to Home Assistant itself. If Home Assistant runs in a virtual machine
+  (e.g. Proxmox), pass the disk or its USB port to the virtual machine first.
+
 ## Backup to a second disk
 
-Plug in a second disk and pick its partition in **Backup disk** (Configuration tab), then save and restart.
-The Backup card on the Home page unlocks:
+Pick a free disk with **Use for backups** on the Disks page (or choose its partition in **Backup disk** in the
+Configuration tab, then save and restart). The Backup card on the Home page unlocks:
 
 - Every night at **Backup time** (default 03:00) the NAS disk is copied to the backup disk. Only what changed is copied.
   If Home Assistant was off at that time, the backup runs a few minutes after the add-on starts.
