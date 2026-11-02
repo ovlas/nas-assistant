@@ -12,6 +12,7 @@ someone else's private files through them.
 
 import secrets
 import sqlite3
+from contextlib import contextmanager
 import time
 from typing import List, Optional
 
@@ -24,7 +25,7 @@ from .kinds import kind_of
 KINDS = ("album", "dossier")
 
 
-def _db() -> sqlite3.Connection:
+def _connect() -> sqlite3.Connection:
     meta = disks.NAS_ROOT / ".nas_assistant"
     meta.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(meta / "index.db", timeout=30)
@@ -37,6 +38,17 @@ def _db() -> sqlite3.Connection:
         "PRIMARY KEY (collection, space, path))"
     )
     return conn
+
+
+@contextmanager
+def _db():
+    """Commit and always close: an open handle on the disk would stop it from being ejected."""
+    conn = _connect()
+    try:
+        with conn:
+            yield conn
+    finally:
+        conn.close()
 
 
 def _clean(path: str) -> str:

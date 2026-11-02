@@ -196,6 +196,32 @@ async def set_role(device_id: str, role: Optional[str]) -> None:
     asyncio.get_running_loop().create_task(_restart_soon())
 
 
+def _holders(path: Path) -> List[str]:
+    """Processes with files open under a mount point, from /proc: what keeps a disk busy."""
+    found = []
+    prefix = str(path).rstrip("/") + "/"
+    for pid in filter(str.isdigit, os.listdir("/proc")):
+        try:
+            name = Path(f"/proc/{pid}/comm").read_text().strip()
+            links = [os.readlink(f"/proc/{pid}/cwd")]
+            links += [os.readlink(f"/proc/{pid}/fd/{fd}") for fd in os.listdir(f"/proc/{pid}/fd")]
+        except OSError:
+            continue
+        found += [f"{name}[{pid}] {link}" for link in links if link == str(path) or link.startswith(prefix)]
+    return found
+
+
+def _unmount(path: Path) -> bool:
+    """Finish writes and unmount, giving requests still running a few seconds to end."""
+    subprocess.run(["sync"], capture_output=True)
+    for attempt in range(8):
+        if subprocess.run(["umount", str(path)], capture_output=True).returncode == 0:
+            return True
+        time.sleep(0.75)
+    log.warning("Can't unmount %s, files still open: %s", path, _holders(path) or "none found")
+    return False
+
+
 def _eject_nas() -> None:
     """Pause the NAS and unmount its disk so it can be unplugged. The configuration stays:
     when the disk is back, "Reactivate" restarts the add-on and everything mounts again."""
@@ -204,8 +230,7 @@ def _eject_nas() -> None:
     if backup._lock.locked():
         raise HTTPException(409, "A backup is running: wait for it to finish")
     disks.set_state("ejected")  # from now on, file requests answer "NAS disk not available"
-    subprocess.run(["sync"], capture_output=True)
-    if subprocess.run(["umount", str(disks.NAS_ROOT)], capture_output=True).returncode != 0:
+    if not _unmount(disks.NAS_ROOT):
         disks.set_state("mounted")
         raise HTTPException(409, "The disk is in use: try again in a moment")
 
@@ -235,8 +260,7 @@ async def eject(role: str) -> None:
     # Release the role first: without the option, Home Assistant won't stop the add-on from
     # starting while the disk is unplugged. If unmounting then fails, the role is given back.
     await _supervisor("POST", "/addons/self/options", {"options": released})
-    subprocess.run(["sync"], capture_output=True)
-    if subprocess.run(["umount", str(MOUNTS[role])], capture_output=True).returncode != 0:
+    if not await asyncio.get_running_loop().run_in_executor(None, _unmount, MOUNTS[role]):
         await _supervisor("POST", "/addons/self/options", {"options": options})
         raise HTTPException(409, "The disk is in use: try again in a moment")
     ejected = _ejected()
