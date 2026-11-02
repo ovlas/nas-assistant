@@ -1,10 +1,12 @@
 """The Disks page: every disk the computer sees and what it is used for.
 
-From here an administrator can give a free disk the backup role and, when its
-filesystem can't be used, initialize it. Changing the role goes through the
-Supervisor (the add-on edits its own `backup_device` option and restarts), so
-it also works with protection mode on: Home Assistant then grants access to
-that disk only.
+From here an administrator gives a free disk a role, and can change it later:
+- backup: every night the NAS is copied onto it, on its own;
+- storage: extra room, shown as one more folder in every space.
+When its filesystem can't be used, the disk can be initialized, only on request.
+Roles go through the Supervisor (the add-on edits its own `backup_device` /
+`storage_device` options and restarts), so it works with protection mode on:
+Home Assistant then grants access to those disks only.
 
 Never initialized, whatever the request says: the NAS disk, any other
 partition of the NAS disk's physical disk, and the Home Assistant system disk.
@@ -28,10 +30,18 @@ log = logging.getLogger("uvicorn.error")
 SUPERVISOR = "http://supervisor"
 TOKEN = os.environ.get("SUPERVISOR_TOKEN", "")
 NAS_DEVICE = os.environ.get("NAS_DEVICE", "")
-BACKUP_DEVICE = os.environ.get("NAS_BACKUP_DEVICE", "")
-BACKUP_FSTYPE = os.environ.get("NAS_BACKUP_FSTYPE", "")
+# role -> (add-on option, device in use now, its state, its filesystem when unusable)
+ROLES = {
+    "backup": ("backup_device", os.environ.get("NAS_BACKUP_DEVICE", ""),
+               os.environ.get("NAS_BACKUP_STATE", "none"), os.environ.get("NAS_BACKUP_FSTYPE", "")),
+    "storage": ("storage_device", os.environ.get("NAS_STORAGE_DEVICE", ""),
+                os.environ.get("NAS_STORAGE_STATE", "none"), os.environ.get("NAS_STORAGE_FSTYPE", "")),
+}
+BACKUP_DEVICE = ROLES["backup"][1]
+STORAGE_DEVICE = ROLES["storage"][1]
+BACKUP_FSTYPE = ROLES["backup"][3]
 BY_ID = Path(os.environ.get("NAS_BY_ID_DIR", "/dev/disk/by-id"))
-INIT_LABEL = "NAS Backup"
+INIT_LABELS = {"backup": "NAS Backup", "storage": "NAS Storage"}
 
 
 def _by_id() -> Dict[str, str]:
@@ -58,8 +68,9 @@ def _usage(root: Path) -> Optional[dict]:
         return None
 
 
-def overview() -> List[dict]:
-    """Physical disks with their partitions and roles: nas, backup, system or free."""
+def overview(include_system: bool = False) -> List[dict]:
+    """Physical disks with their partitions and roles: nas, backup, storage or free.
+    The Home Assistant system disk is left out, unless the safety checks ask for it."""
     by_id = _by_id()
     system = disks._system_devices()
     nas_disk = _parent(NAS_DEVICE) if NAS_DEVICE else ""
@@ -68,16 +79,20 @@ def overview() -> List[dict]:
         name = dev.get("name", "")
         if dev.get("type") != "disk" or name.startswith(disks.SKIP_NAMES) or "boot" in name:
             continue
-        accessible = disks._readable(dev["path"]) if dev["path"] in (NAS_DEVICE, BACKUP_DEVICE) else None
+        in_use = (NAS_DEVICE, BACKUP_DEVICE, STORAGE_DEVICE)
+        accessible = disks._readable(dev["path"]) if dev["path"] in in_use else None
         nodes = [c for c in dev.get("children") or [] if c.get("type") == "part"] or [dev]
         is_system = disks._is_system_disk(dev, system)
+        if is_system and not include_system:
+            continue
         parts = []
         for node in nodes:
-            if node["path"] in (NAS_DEVICE, BACKUP_DEVICE) or os.access(node["path"], os.R_OK):
+            if node["path"] in in_use or os.access(node["path"], os.R_OK):
                 disks._probe(node)
             role = ("system" if is_system else "nas" if node["path"] == NAS_DEVICE
-                    else "backup" if node["path"] == BACKUP_DEVICE else "free")
-            fstype = node.get("fstype") or (BACKUP_FSTYPE if role == "backup" else "")
+                    else "backup" if node["path"] == BACKUP_DEVICE
+                    else "storage" if node["path"] == STORAGE_DEVICE else "free")
+            fstype = node.get("fstype") or (ROLES[role][3] if role in ROLES else "")
             parts.append({
                 "path": node["path"],
                 "id": by_id.get(node["path"], ""),
@@ -86,7 +101,10 @@ def overview() -> List[dict]:
                 "label": node.get("label") or "",
                 "role": role,
                 "usage": _usage(disks.NAS_ROOT) if role == "nas" else
-                         _usage(backup.ROOT) if role == "backup" and backup.STATE == "mounted" else None,
+                         _usage(backup.ROOT) if role == "backup" and backup.STATE == "mounted" else
+                         _usage(Path(os.environ.get("NAS_STORAGE_ROOT", "/storage")))
+                         if role == "storage" and ROLES["storage"][2] == "mounted" else None,
+                "state": ROLES[role][2] if role in ROLES else "",
                 # A partition of the NAS disk's physical disk is never offered for backups or initialized.
                 "same_disk_as_nas": bool(nas_disk) and dev["path"] == nas_disk and role != "nas",
             })
@@ -125,43 +143,53 @@ async def _restart_soon() -> None:
         log.info("Restart requested: %s", err)
 
 
-async def set_backup_device(device_id: Optional[str]) -> None:
-    """Give a free disk the backup role (or none), then restart to apply it."""
-    if device_id:
-        candidates = {p["id"] for d in overview() if not d["system"] for p in d["partitions"]
-                      if p["role"] == "free" and p["id"] and not p["same_disk_as_nas"]}
-        candidates |= {d["id"] for d in overview() if not d["system"] and d["id"]
-                       and all(p["role"] == "free" and not p["same_disk_as_nas"] for p in d["partitions"])}
-        if device_id not in candidates:
-            raise HTTPException(400, "Disk not selectable")
+async def set_role(device_id: str, role: Optional[str]) -> None:
+    """Give a disk the backup or storage role, move it from one role to the other,
+    or (role None) stop using it. Nothing on the disk is erased. Restarts to apply."""
+    if role not in (None, *ROLES):
+        raise HTTPException(400, "Unknown role")
+    by_id = _by_id()
+    current = {r: by_id.get(device, "") for r, (_, device, _, _) in ROLES.items()}
+    disks_now = overview()
+    free = {p["id"] for d in disks_now if not d["system"] for p in d["partitions"]
+            if p["role"] == "free" and p["id"] and not p["same_disk_as_nas"]}
+    free |= {d["id"] for d in disks_now if not d["system"] and d["id"]
+             and all(p["role"] == "free" and not p["same_disk_as_nas"] for p in d["partitions"])}
+    if device_id not in free and device_id not in current.values():
+        raise HTTPException(400, "Disk not selectable")
     info = await _supervisor("GET", "/addons/self/info")
     options = dict(info.get("options") or {})
-    if device_id:
-        options["backup_device"] = device_id
-    else:
-        options.pop("backup_device", None)
+    for other, (option, _, _, _) in ROLES.items():
+        # A disk has one role: take it away from wherever it is now.
+        if options.get(option) and os.path.realpath(options[option]) == os.path.realpath(device_id):
+            options.pop(option)
+    if role:
+        options[ROLES[role][0]] = device_id
     await _supervisor("POST", "/addons/self/options", {"options": options})
     asyncio.get_running_loop().create_task(_restart_soon())
 
 
-def _initialize(confirm: str) -> None:
+def _initialize(role: str, confirm: str) -> None:
     if confirm != disks.FORMAT_CONFIRM:
         raise HTTPException(400, "Formatting not confirmed")
-    device = BACKUP_DEVICE
-    # Only a backup disk whose filesystem the NAS can't use: a working one is never erased from here.
-    if not device or backup.STATE != "uninitialized":
+    if role not in ROLES:
+        raise HTTPException(400, "Unknown role")
+    _, device, state, _ = ROLES[role]
+    # Only a disk whose filesystem the NAS can't use: a working one is never erased from here.
+    if not device or state != "uninitialized":
         raise HTTPException(400, "Disk not selectable")
     # Hard guards, independent of what the page shows.
     if NAS_DEVICE and (os.path.realpath(device) == os.path.realpath(NAS_DEVICE) or _parent(device) == _parent(NAS_DEVICE)):
         raise HTTPException(400, "Disk not selectable")
-    if any(d["system"] and device in {d["path"], *(p["path"] for p in d["partitions"])} for d in overview()):
+    if any(d["system"] and device in {d["path"], *(p["path"] for p in d["partitions"])}
+           for d in overview(include_system=True)):
         raise HTTPException(400, "Disk not selectable")
     # The filesystem goes straight on the device the add-on was given (a partition, or a whole
     # new disk): with protection mode on, that is the only device it may write to.
     disks._run("wipefs", "-a", device)
-    disks._run("mkfs.ext4", "-F", "-q", "-m", "0", "-L", INIT_LABEL, device)
+    disks._run("mkfs.ext4", "-F", "-q", "-m", "0", "-L", INIT_LABELS[role], device)
 
 
-async def initialize(confirm: str) -> None:
-    await asyncio.get_running_loop().run_in_executor(None, _initialize, confirm)
+async def initialize(role: str, confirm: str) -> None:
+    await asyncio.get_running_loop().run_in_executor(None, _initialize, role, confirm)
     asyncio.get_running_loop().create_task(_restart_soon())

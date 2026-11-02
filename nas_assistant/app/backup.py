@@ -85,6 +85,26 @@ def _excluded(rel: str) -> bool:
     return any(rel == e or rel.startswith(e + "/") for e in EXCLUDED_PATHS)
 
 
+# The extra-storage disk is backed up too, into its own folder of the copy.
+EXTRA_PREFIX = "Extra disk"
+
+
+def _sources() -> list:
+    """(prefix in the backup, real folder) for each disk to copy."""
+    found = [("", disks.NAS_ROOT)]
+    extra = Path(os.environ.get("NAS_STORAGE_ROOT", "/storage")) / "NAS Assistant"
+    if os.environ.get("NAS_STORAGE_STATE") == "mounted" and extra.is_dir():
+        found.append((EXTRA_PREFIX, extra))
+    return found
+
+
+def _source_path(rel: str) -> Path:
+    for prefix, root in reversed(_sources()):
+        if prefix and (rel == prefix or rel.startswith(prefix + "/")):
+            return root / rel[len(prefix) + 1:]
+    return disks.NAS_ROOT / rel
+
+
 def _scan(root: Path) -> dict:
     """{relative path: (size, mtime)} of every file under root, skipping exclusions."""
     files = {}
@@ -114,7 +134,7 @@ def _keep_old(rel: str, version_dir: Path) -> None:
 
 
 def _copy(rel: str, done: list, total: int) -> None:
-    src = disks.NAS_ROOT / rel
+    src = _source_path(rel)
     dst = CURRENT / rel
     dst.parent.mkdir(parents=True, exist_ok=True)
     partial = dst.with_name(f".{dst.name}.nasbackup")
@@ -149,7 +169,10 @@ def run() -> dict:
         CURRENT.mkdir(parents=True, exist_ok=True)
         VERSIONS.mkdir(parents=True, exist_ok=True)
         version_dir = VERSIONS / datetime.now().strftime(STAMP)
-        source = _scan(disks.NAS_ROOT)
+        source = {}
+        for prefix, root in _sources():
+            source.update({(f"{prefix}/{rel}" if prefix else rel): info for rel, info in _scan(root).items()
+                           if not (not prefix and rel.split("/")[0] == EXTRA_PREFIX)})
         backed = _scan(CURRENT)
         # FAT/exFAT keep times to 2 seconds: smaller differences are not changes.
         changed = [rel for rel, (size, mtime) in source.items()
@@ -177,7 +200,7 @@ def run() -> dict:
         for folder, dirs, names in os.walk(CURRENT, topdown=False):
             if folder != str(CURRENT) and not os.listdir(folder):
                 rel = os.path.relpath(folder, CURRENT)
-                if not (disks.NAS_ROOT / rel).is_dir():
+                if not _source_path(rel).is_dir():
                     os.rmdir(folder)
         result["ok"] = not errors
         result["message"] = f"{len(errors)} errors, first: {errors[0]}" if errors else ""

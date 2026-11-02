@@ -333,6 +333,7 @@ dialog input { width: 100%; padding: 9px 10px; border-radius: 9px; border: 1px s
 .role-backup { background: rgba(94,92,230,.22); color: #8e8cff; }
 .role-system { background: rgba(142,142,147,.22); color: var(--muted); }
 .role-free { background: rgba(48,209,88,.18); color: #30d158; }
+.role-storage { background: rgba(255,159,10,.2); color: #ff9f0a; }
 .notice.hint { background: var(--panel); color: var(--muted); box-shadow: var(--shadow); }
 
 /* --- Action menu, move dialog ------------------------------------------ */

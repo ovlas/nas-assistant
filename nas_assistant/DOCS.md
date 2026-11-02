@@ -33,17 +33,21 @@ If it is missing, NAS Assistant writes nothing to the main disk.
 
 ## Disks
 
-Administrators find **Disks** in the sidebar: every disk Home Assistant sees, with its role (NAS disk, backup disk,
-Home Assistant system, free) and how full it is.
+Administrators find **Disks** in the sidebar: the disks connected to Home Assistant (never its own system disk),
+what each one is used for and how full it is. A free disk can be given a role, and you can change it later:
 
-- **Use for backups** gives a free disk the backup role: NAS Assistant sets its own *Backup disk* option and restarts.
-  Nothing on the disk is erased.
-- If the NAS can't use the disk's filesystem (a brand new disk, or one formatted for a Mac), **Initialize…** appears.
+- **Use for backups**: every night the NAS is copied onto it, on its own (see below).
+- **Use as extra storage**: more room for files. It appears as one more folder, named after the disk, at the top of
+  *Files* and *Shared files*, with the same per-user privacy. Files can be moved between the two disks; photos on it
+  show in the gallery; it is included in the nightly backup.
+- **Use … instead** switches a disk between the two roles, **Stop using it** frees it. Changing roles never erases
+  anything: NAS Assistant only ever writes inside its own folder on these disks ("NAS Assistant" or
+  "NAS Assistant Backup"), then restarts to apply the change. This works with protection mode on.
+- If the NAS can't use a disk's filesystem (a brand new disk, or one formatted for a Mac), **Initialize…** appears.
   It runs only when you press it and type the confirmation word; it erases that disk and makes it ext4.
 - The NAS disk, any other partition of the same physical disk, and the Home Assistant system disk are never
-  initialized.
-- A disk that doesn't appear is not visible to Home Assistant itself. If Home Assistant runs in a virtual machine
-  (e.g. Proxmox), pass the disk or its USB port to the virtual machine first.
+  initialized or given a role.
+- A disk that doesn't appear is not visible to Home Assistant itself: check its power supply, cable and USB port.
 
 ## Backup to a second disk
 
@@ -138,7 +142,8 @@ family/                           shared with everyone
 | `device` | Partition of the NAS disk. Recommended, works with protection mode on. |
 | `disk` | UUID or label of the NAS disk (advanced). |
 | `family_folder_name` | Name of the shared folder. |
-| `backup_device` | Optional second disk for nightly backups. |
+| `backup_device` | Optional disk for nightly backups (set it from the Disks page). |
+| `storage_device` | Optional disk used as extra storage (set it from the Disks page). |
 | `backup_time` | When the nightly backup runs (HH:MM). |
 | `backup_keep_days` | Days previous versions of changed or deleted files are kept. |
 | `public_url` | Address of NAS Assistant from outside home (e.g. a Cloudflare Tunnel host), shown when you connect a phone. |

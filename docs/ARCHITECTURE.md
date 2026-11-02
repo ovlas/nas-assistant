@@ -101,6 +101,7 @@ App options: "Wi-Fi only", "only while charging", "only at home".
 - [x] Background uploads from phones: one-time QR pairing, per-device upload-only keys, resumable device uploads; iOS Shortcut as fallback
 - [ ] Mobile app (Flutter, iOS + Android): QR pairing and camera-roll backup in the background
 - [x] Backup to a second disk: nightly incremental copy with versions
+- [x] Extra-storage disk: one more folder in every space; disks get and change roles from the web UI
 - [x] Files as list, icons or grid; Home Assistant profile picture
 - [x] iCloud-style welcome page
 - [x] Favorites for files, folders, photos and videos

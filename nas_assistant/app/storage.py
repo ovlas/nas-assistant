@@ -1,6 +1,9 @@
 """File storage on the dedicated NAS disk.
 
-Layout under NAS_ROOT:
+An optional extra-storage disk adds room: it appears as one more folder (named
+after the disk) at the top of every space, with the same per-user privacy.
+
+Layout under NAS_ROOT, and the same under <extra disk>/NAS Assistant/:
     users/<ha_user_id>/    private space of each user
     family/                shared with every user
     .trash/<ha_user_id>/   deleted items, per user ("Recently deleted")
@@ -15,7 +18,7 @@ import re
 import shutil
 import time
 from pathlib import Path
-from typing import BinaryIO, List
+from typing import BinaryIO, List, Optional, Tuple
 
 from fastapi import HTTPException
 
@@ -30,6 +33,10 @@ _SAFE_ID = re.compile(r"^[A-Za-z0-9_-]+$")
 TRASH_INFO = ".nas_trash.json"
 # Items older than this are deleted for good; 0 keeps them until the trash is emptied.
 TRASH_DAYS = int(os.environ.get("NAS_TRASH_DAYS", "30"))
+# The extra-storage disk, if any: only its "NAS Assistant" folder is used.
+EXTRA_STATE = os.environ.get("NAS_STORAGE_STATE", "none")
+EXTRA_NAME = os.environ.get("NAS_STORAGE_NAME", "") or "Extra disk"
+EXTRA_DATA = Path(os.environ.get("NAS_STORAGE_ROOT", "/storage")) / "NAS Assistant"
 
 
 def _require_disk() -> None:
@@ -51,14 +58,56 @@ def _space_root(user: User, space: str) -> Path:
     return root
 
 
+def _extra_root(user: User, space: str) -> Optional[Path]:
+    if EXTRA_STATE != "mounted":
+        return None
+    _space_root(user, space)  # validates user and space
+    root = EXTRA_DATA / ("users/" + user.id if space == "personal" else "family")
+    root.mkdir(parents=True, exist_ok=True)
+    return root.resolve()
+
+
+def roots(user: User, space: str) -> List[Tuple[str, Path]]:
+    """Where a space lives: ("", NAS disk folder) and, with an extra disk, (EXTRA_NAME, its folder)."""
+    found = [("", _space_root(user, space).resolve())]
+    extra = _extra_root(user, space)
+    if extra:
+        found.append((EXTRA_NAME, extra))
+    return found
+
+
 def resolve(user: User, space: str, rel_path: str) -> Path:
-    """Map a user-supplied path to a real path, refusing anything outside the space."""
+    """Map a user-supplied path to a real path, refusing anything outside the space.
+    Paths starting with the extra disk's folder name lead to the extra disk."""
     _require_disk()
-    root = _space_root(user, space).resolve()
-    target = (root / rel_path.lstrip("/")).resolve()
+    rel = rel_path.strip("/")
+    first, _, rest = rel.partition("/")
+    extra = _extra_root(user, space)
+    if extra and first == EXTRA_NAME:
+        root, rel = extra, rest
+    else:
+        root = _space_root(user, space).resolve()
+    target = (root / rel).resolve()
     if target != root and root not in target.parents:
         raise HTTPException(400, "Invalid path")
     return target
+
+
+def to_rel(user: User, space: str, full: Path) -> str:
+    """The path the web UI uses for a real path (the reverse of resolve)."""
+    for prefix, root in sorted(roots(user, space), key=lambda r: -len(str(r[1]))):
+        if full == root or root in full.parents:
+            rel = str(full.relative_to(root)) if full != root else ""
+            return "/".join(p for p in (prefix, rel) if p and p != ".")
+    raise HTTPException(400, "Invalid path")
+
+
+def _walk(user: User, space: str):
+    """os.walk over every disk of a space, skipping hidden folders: yields (folder, files)."""
+    for _, root in roots(user, space):
+        for folder, dirs, files in os.walk(root):
+            dirs[:] = [d for d in dirs if not d.startswith(".")]
+            yield Path(folder), files
 
 
 def _check_name(name: str) -> str:
@@ -85,28 +134,32 @@ def list_dir(user: User, space: str, rel_path: str) -> List[dict]:
             "v": stat.st_mtime_ns,
             "kind": None if entry.is_dir() else kind_of(entry.name),
         })
-    entries.sort(key=lambda e: (not e["is_dir"], e["name"].lower()))
+    extra = _extra_root(user, space)
+    if extra and not rel_path.strip("/"):
+        stat = extra.stat()
+        entries = [e for e in entries if e["name"] != EXTRA_NAME]
+        entries.append({"name": EXTRA_NAME, "is_dir": True, "size": 0, "modified": int(stat.st_mtime),
+                        "v": stat.st_mtime_ns, "kind": None, "volume": True})
+    entries.sort(key=lambda e: (not e["is_dir"], not e.get("volume"), e["name"].lower()))
     return entries
 
 
 def recent_files(user: User, space: str, limit: int, skip_kinds=()) -> List[dict]:
     """The most recently changed files of a space, newest first."""
-    root = resolve(user, space, "")
     found = []
-    for folder, dirs, files in os.walk(root):
-        dirs[:] = [d for d in dirs if not d.startswith(".")]
+    for folder, files in _walk(user, space):
         for name in files:
             kind = kind_of(name)
             if name.startswith(".") or kind in skip_kinds:
                 continue
-            full = Path(folder) / name
+            full = folder / name
             stat = full.stat()
             found.append((stat.st_mtime_ns, full, stat, kind))
     entries = []
     for _, full, stat, kind in heapq.nlargest(limit, found, key=lambda f: f[0]):
         entries.append({
             "name": full.name,
-            "path": str(full.relative_to(root)),
+            "path": to_rel(user, space, full),
             "is_dir": False,
             "size": stat.st_size,
             "modified": int(stat.st_mtime),
@@ -124,18 +177,16 @@ def files_by_kind(user: User, space: str, kind: str) -> List[dict]:
     """Every file of one type in the whole space, newest first."""
     if kind not in KINDS and kind != "other":
         raise HTTPException(400, "Unknown type")
-    root = resolve(user, space, "")
     found = []
-    for folder, dirs, files in os.walk(root):
-        dirs[:] = [d for d in dirs if not d.startswith(".")]
+    for folder, files in _walk(user, space):
         for name in files:
             if name.startswith(".") or kind_of(name) != kind:
                 continue
-            full = Path(folder) / name
+            full = folder / name
             stat = full.stat()
             found.append({
                 "name": name,
-                "path": str(full.relative_to(root)),
+                "path": to_rel(user, space, full),
                 "is_dir": False,
                 "size": stat.st_size,
                 "modified": int(stat.st_mtime),
@@ -175,7 +226,7 @@ def chunk_targets(user: User, space: str, rel_path: str, name: str):
 
 def _movable(user: User, space: str, rel_path: str) -> Path:
     src = resolve(user, space, rel_path)
-    if src == _space_root(user, space).resolve():
+    if src in {root for _, root in roots(user, space)}:
         raise HTTPException(400, "Can't change the root folder")
     if not src.exists():
         raise HTTPException(404, "Not found")
@@ -204,7 +255,7 @@ def move(user: User, space: str, rel_path: str, to_space: str, to_path: str) -> 
     if dst.exists():
         raise HTTPException(409, "Already exists")
     shutil.move(str(src), str(dst))  # same disk: an instant rename, nothing is copied
-    return {"path": str(dst.relative_to(_space_root(user, to_space).resolve()))}
+    return {"path": to_rel(user, to_space, dst)}
 
 
 # --- Trash ("Recently deleted") ---------------------------------------------
@@ -221,8 +272,7 @@ def _trash_root(user: User) -> Path:
 def move_to_trash(user: User, space: str, rel_path: str) -> str:
     """Move an item to Recently deleted; returns its trash id (for undo)."""
     target = resolve(user, space, rel_path)
-    root = _space_root(user, space).resolve()
-    if target == root:
+    if target in {root for _, root in roots(user, space)}:
         raise HTTPException(400, "Can't delete the root folder")
     if not target.exists():
         raise HTTPException(404, "Not found")
@@ -232,7 +282,7 @@ def move_to_trash(user: User, space: str, rel_path: str) -> str:
     (slot / TRASH_INFO).write_text(json.dumps({
         "name": target.name,
         "space": space,
-        "path": str(target.relative_to(root)),
+        "path": to_rel(user, space, target),
         "deleted": int(time.time()),
     }))
     return slot.name
@@ -334,7 +384,7 @@ def restore(user: User, item_id: str) -> dict:
     shutil.move(str(info["item"]), str(target))
     if slot.exists():
         _erase(slot)
-    return {"space": space, "path": str(target.relative_to(_space_root(user, space).resolve()))}
+    return {"space": space, "path": to_rel(user, space, target)}
 
 
 def delete_forever(user: User, item_id: str) -> None:

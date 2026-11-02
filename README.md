@@ -14,7 +14,7 @@ plus a folder shared with the whole family, on a dedicated disk of your choice.
 - ❤️ Favorites for photos, videos, files and folders
 - 🗂️ Files catalogued by type (photos, videos, music, documents, archives); rename and move with a menu or drag and drop
 - ♻️ Recently deleted: undo, restore to the original folder, or delete forever
-- 💽 Disks page: see every disk, pick the backup disk, initialize a new one when you decide
+- 💽 Disks page: give a new disk a role (nightly backup or extra storage) and change it any time; initialize it only if you decide
 - 🛡️ Add a second disk and nightly backups unlock: incremental copies with 30 days of previous versions
 - 💽 Dedicated disk, any size: HA backups stay on the main disk
 - 🧷 Uses your disk as is (ext4, exFAT, NTFS): nothing is formatted unless you ask

@@ -43,51 +43,65 @@ else
     export NAS_DISK_STATE=unconfigured
 fi
 
-# Optional second disk for backups, mounted on /backup. It is used as is:
-# backups only ever write inside its "NAS Assistant Backup" folder.
-BACKUP_OPTION=""
-if bashio::config.has_value 'backup_device'; then BACKUP_OPTION="$(bashio::config 'backup_device')"; fi
+# Optional extra disks, each used as is: a backup disk (/backup) and an extra-storage
+# disk (/storage). They only ever get written inside their "NAS Assistant…" folder.
+# mount_extra <option> <mountpoint> <ENV prefix>: sets <prefix>_STATE (none, mounted,
+# missing, same, uninitialized), <prefix>_DEVICE and <prefix>_FSTYPE.
+mount_extra() {
+    local option="$1" target="$2" prefix="$3" device="" fstype="" state=none
+    if bashio::config.has_value "${option}"; then
+        device="$(readlink -f "$(bashio::config "${option}")" || true)"
+        if [ -z "${device}" ] || [ ! -b "${device}" ]; then
+            bashio::log.error "Disk for ${option} not found."
+            state=missing
+        elif [ "${device}" = "${DEVICE:-}" ]; then
+            bashio::log.error "The disk for ${option} is the NAS disk itself: choose another disk."
+            state=same
+        else
+            mkdir -p "${target}"
+            bashio::log.info "Mounting ${device} on ${target}"
+            if nas-mount "${device}" "${target}"; then
+                state=mounted
+            else
+                # A disk the NAS can't use as is (new, or e.g. formatted for a Mac): offer to initialize it.
+                fstype="$(blkid -p -s TYPE -o value "${device}" 2>/dev/null || true)"
+                case "${fstype}" in
+                    ext4|exfat|ntfs)
+                        bashio::log.error "Can't mount ${device}."
+                        state=missing ;;
+                    *)
+                        bashio::log.warning "${device} has no usable filesystem (${fstype:-none}): initialize it from the Disks page."
+                        state=uninitialized ;;
+                esac
+            fi
+        fi
+    fi
+    export "${prefix}_STATE=${state}" "${prefix}_DEVICE=${device}" "${prefix}_FSTYPE=${fstype}"
+}
+
 export NAS_BACKUP_ROOT=/backup
 export NAS_BACKUP_TIME="$(bashio::config 'backup_time')"
 export NAS_BACKUP_KEEP_DAYS="$(bashio::config 'backup_keep_days')"
-export NAS_BACKUP_STATE=none
-if bashio::var.has_value "${BACKUP_OPTION}"; then
-    BACKUP_DEVICE="$(readlink -f "${BACKUP_OPTION}" || true)"
-    if [ -z "${BACKUP_DEVICE}" ] || [ ! -b "${BACKUP_DEVICE}" ]; then
-        bashio::log.error "Backup disk not found."
-        export NAS_BACKUP_STATE=missing
-    elif [ "${BACKUP_DEVICE}" = "${DEVICE:-}" ]; then
-        bashio::log.error "The backup disk is the NAS disk itself: choose another disk for backups."
-        export NAS_BACKUP_STATE=same
-    else
-        mkdir -p "${NAS_BACKUP_ROOT}"
-        bashio::log.info "Mounting backup disk ${BACKUP_DEVICE} on ${NAS_BACKUP_ROOT}"
-        if nas-mount "${BACKUP_DEVICE}" "${NAS_BACKUP_ROOT}"; then
-            export NAS_BACKUP_STATE=mounted
-            # Two partitions of the same physical disk don't protect from a disk failure.
-            NAS_PARENT="$(lsblk -no PKNAME "${DEVICE:-/nonexistent}" 2>/dev/null || true)"
-            BACKUP_PARENT="$(lsblk -no PKNAME "${BACKUP_DEVICE}" 2>/dev/null || true)"
-            if [ -n "${NAS_PARENT}" ] && [ "${NAS_PARENT}" = "${BACKUP_PARENT}" ]; then
-                export NAS_BACKUP_SAME_DISK=1
-                bashio::log.warning "NAS and backup are partitions of the same physical disk."
-            fi
-        else
-            # A disk the NAS can't use as is (new, or e.g. formatted for a Mac): offer to initialize it.
-            BACKUP_FSTYPE="$(blkid -p -s TYPE -o value "${BACKUP_DEVICE}" 2>/dev/null || true)"
-            case "${BACKUP_FSTYPE}" in
-                ext4|exfat|ntfs)
-                    bashio::log.error "Can't mount the backup disk ${BACKUP_DEVICE}."
-                    export NAS_BACKUP_STATE=missing ;;
-                *)
-                    bashio::log.warning "The backup disk has no usable filesystem (${BACKUP_FSTYPE:-none}): initialize it from the Disks page."
-                    export NAS_BACKUP_STATE=uninitialized
-                    export NAS_BACKUP_FSTYPE="${BACKUP_FSTYPE}" ;;
-            esac
-        fi
+mount_extra backup_device "${NAS_BACKUP_ROOT}" NAS_BACKUP
+if [ "${NAS_BACKUP_STATE}" = mounted ]; then
+    # Two partitions of the same physical disk don't protect from a disk failure.
+    NAS_PARENT="$(lsblk -no PKNAME "${DEVICE:-/nonexistent}" 2>/dev/null || true)"
+    BACKUP_PARENT="$(lsblk -no PKNAME "${NAS_BACKUP_DEVICE}" 2>/dev/null || true)"
+    if [ -n "${NAS_PARENT}" ] && [ "${NAS_PARENT}" = "${BACKUP_PARENT}" ]; then
+        export NAS_BACKUP_SAME_DISK=1
+        bashio::log.warning "NAS and backup are partitions of the same physical disk."
     fi
 fi
+
+export NAS_STORAGE_ROOT=/storage
+mount_extra storage_device "${NAS_STORAGE_ROOT}" NAS_STORAGE
+if [ "${NAS_STORAGE_STATE}" = mounted ]; then
+    # Shown as a folder in every space: the disk's label, or its model.
+    NAME="$(blkid -s LABEL -o value "${NAS_STORAGE_DEVICE}" 2>/dev/null || true)"
+    [ -n "${NAME}" ] || NAME="$(lsblk -dno MODEL "$(lsblk -no PKNAME "${NAS_STORAGE_DEVICE}" | sed 's|^|/dev/|')" 2>/dev/null | xargs || true)"
+    export NAS_STORAGE_NAME="$(echo "${NAME:-Extra disk}" | tr -d '/\\' | sed 's/^\.*//')"
+fi
 export NAS_DEVICE="${DEVICE:-}"
-export NAS_BACKUP_DEVICE="${BACKUP_DEVICE:-}"
 
 cd /opt/nas_assistant
 exec python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8456 --log-level "${NAS_LOG_LEVEL}"

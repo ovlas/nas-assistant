@@ -23,7 +23,7 @@ import segno
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
-app = FastAPI(title="NAS Assistant", version="0.14.0")
+app = FastAPI(title="NAS Assistant", version="0.15.0")
 
 # Small boards: decode at most two big images at once. Waiting requests queue
 # here, outside the worker threads, so uploads and browsing never stall behind them.
@@ -171,7 +171,6 @@ def _store_from_device(user: User, upload: UploadFile, space: str, lang: str) ->
 
 def _place(user: User, tmp: Path, name: str, space: str, lang: str) -> dict:
     """Move a received file into the user's space: photos and videos by capture date."""
-    root = storage.resolve(user, space, "")
     try:
         kind = media_kind(name)
         if kind:
@@ -186,10 +185,10 @@ def _place(user: User, tmp: Path, name: str, space: str, lang: str) -> dict:
         size = tmp.stat().st_size
         # Shortcuts may send the same photo again: skip what is already there.
         if target.exists() and target.stat().st_size == size:
-            return {"path": str(target.relative_to(root)), "skipped": True}
+            return {"path": storage.to_rel(user, space, target), "skipped": True}
         target = storage._free_name(target_dir, target.name)
         os.replace(tmp, target)
-        return {"path": str(target.relative_to(root)), "size": size, "skipped": False}
+        return {"path": storage.to_rel(user, space, target), "size": size, "skipped": False}
     finally:
         tmp.unlink(missing_ok=True)
 
@@ -296,29 +295,24 @@ async def _fields(request: Request, *names: str, optional: tuple = ()) -> list:
 
 @app.get("/api/disks/overview")
 def disks_overview(user: User = Depends(admin_user)):
-    return {"disks": diskadmin.overview(), "backup": {"state": backup.STATE, "fstype": diskadmin.BACKUP_FSTYPE},
-            "nas": disks.state()}
+    return {"disks": diskadmin.overview(), "nas": disks.state(),
+            "roles": {role: {"state": state, "fstype": fstype} for role, (_, _, state, fstype) in diskadmin.ROLES.items()},
+            "storage_name": storage.EXTRA_NAME}
 
 
-@app.post("/api/disks/backup")
-async def choose_backup_disk(request: Request, user: User = Depends(admin_user)):
-    """Give a free disk the backup role; the add-on restarts to apply it."""
-    (device_id,) = await _fields(request, "id")
-    await diskadmin.set_backup_device(device_id)
-    return {"ok": True, "restarting": True}
-
-
-@app.delete("/api/disks/backup")
-async def remove_backup_disk(user: User = Depends(admin_user)):
-    await diskadmin.set_backup_device(None)
+@app.post("/api/disks/role")
+async def set_disk_role(request: Request, user: User = Depends(admin_user)):
+    """role: backup, storage or none. The add-on restarts to apply it; nothing is erased."""
+    device_id, role = await _fields(request, "id", "role")
+    await diskadmin.set_role(device_id, None if role == "none" else role)
     return {"ok": True, "restarting": True}
 
 
 @app.post("/api/disks/initialize")
-async def initialize_backup_disk(request: Request, user: User = Depends(admin_user)):
-    """Erase the backup disk and make it ext4, only when its filesystem can't be used."""
-    (confirm,) = await _fields(request, "confirm")
-    await diskadmin.initialize(confirm)
+async def initialize_disk(request: Request, user: User = Depends(admin_user)):
+    """Erase the backup or storage disk and make it ext4, only when its filesystem can't be used."""
+    role, confirm = await _fields(request, "role", "confirm")
+    await diskadmin.initialize(role, confirm)
     return {"ok": True, "restarting": True}
 
 

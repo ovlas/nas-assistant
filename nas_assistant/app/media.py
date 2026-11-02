@@ -124,18 +124,16 @@ def _taken(path: Path, kind: str, mtime: float) -> int:
 
 
 def gallery(user: User, space: str) -> List[dict]:
-    root = storage.resolve(user, space, "")
     items = []
     seen = set()
     conn = _db()
     try:
-        for folder, dirs, files in os.walk(root):
-            dirs[:] = [d for d in dirs if not d.startswith(".")]
+        for folder, files in storage._walk(user, space):
             for name in files:
                 kind = kind_of(name)
                 if not kind or name.startswith("."):
                     continue
-                full = Path(folder) / name
+                full = folder / name
                 stat = full.stat()
                 key = str(full)
                 seen.add(key)
@@ -147,7 +145,7 @@ def gallery(user: User, space: str) -> List[dict]:
                     conn.execute("INSERT OR REPLACE INTO media VALUES (?, ?, ?, ?, ?)",
                                  (key, stat.st_mtime_ns, stat.st_size, taken, kind))
                 items.append({
-                    "path": str(full.relative_to(root)),
+                    "path": storage.to_rel(user, space, full),
                     "name": name,
                     "kind": kind,
                     "taken": taken,
@@ -155,10 +153,11 @@ def gallery(user: User, space: str) -> List[dict]:
                     "v": stat.st_mtime_ns,
                 })
         # Forget files that were deleted or moved.
-        prefix = str(root) + os.sep
-        for (path,) in conn.execute("SELECT path FROM media WHERE path LIKE ?", (prefix + "%",)).fetchall():
-            if path not in seen:
-                conn.execute("DELETE FROM media WHERE path = ?", (path,))
+        for _, root in storage.roots(user, space):
+            prefix = str(root) + os.sep
+            for (path,) in conn.execute("SELECT path FROM media WHERE path LIKE ?", (prefix + "%",)).fetchall():
+                if path not in seen:
+                    conn.execute("DELETE FROM media WHERE path = ?", (path,))
         conn.commit()
     finally:
         conn.close()

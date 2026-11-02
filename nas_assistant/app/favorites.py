@@ -58,14 +58,16 @@ def paths(user: User, space: str) -> Set[str]:
 
 def listing(user: User, space: str) -> List[dict]:
     """The user's favorites in a space, newest first; forgets items that are gone."""
-    root = storage.resolve(user, space, "")
     entries, gone = [], []
     with _db() as conn:
         rows = conn.execute(
             "SELECT path FROM favorites WHERE user = ? AND space = ? ORDER BY added DESC", (user.id, space)
         ).fetchall()
         for (path,) in rows:
-            full = root / path
+            try:
+                full = storage.resolve(user, space, path)
+            except HTTPException:  # e.g. on the extra disk while it is unplugged
+                continue
             if not full.exists():
                 gone.append(path)
                 continue

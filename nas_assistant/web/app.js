@@ -312,7 +312,7 @@ function fileRow(entry) {
     img.onerror = () => { thumb.innerHTML = ""; thumb.append(iconEl(KIND_ICONS[kind])); };
     thumb.append(img);
   } else {
-    thumb.append(iconEl(entry.is_dir ? "folder" : KIND_ICONS[entry.kind] || "file"));
+    thumb.append(iconEl(entry.volume ? "disk" : entry.is_dir ? "folder" : KIND_ICONS[entry.kind] || "file"));
   }
 
   const actions = el("div", "row-actions");
@@ -320,8 +320,10 @@ function fileRow(entry) {
   more.title = t("more");
   more.append(iconEl("more"));
   more.onclick = (e) => { e.stopPropagation(); openMenu(entry, more.getBoundingClientRect()); };
-  actions.append(more);
+  // The extra disk's folder can't be renamed, moved or deleted.
+  if (!entry.volume) actions.append(more);
   row.oncontextmenu = (e) => {
+    if (entry.volume) return;
     e.preventDefault();
     openMenu(entry, { left: e.clientX, right: e.clientX, top: e.clientY, bottom: e.clientY });
   };
@@ -801,7 +803,7 @@ function trashCard(count) {
 
 // --- Disks (administrators) -----------------------------------------------------
 
-const ROLE_LABELS = { nas: "roleNas", backup: "roleBackup", system: "roleSystem", free: "roleFree" };
+const ROLE_LABELS = { nas: "roleNas", backup: "roleBackup", storage: "roleStorage", system: "roleSystem", free: "roleFree" };
 
 async function renderDisks() {
   setHeader(t("disksTitle"), t("disksSub"));
@@ -814,12 +816,14 @@ async function renderDisks() {
   }
   if (stale(seq)) return;
   const page = $("disks");
-  const backupSet = info.disks.some((d) => d.partitions.some((p) => p.role === "backup"));
-  for (const disk of info.disks) page.append(diskCard(disk, info, backupSet));
+  const taken = (role) => info.disks.some((d) => d.partitions.some((p) => p.role === role));
+  for (const disk of info.disks) page.append(diskCard(disk, info, { backup: taken("backup"), storage: taken("storage") }));
   page.append(el("p", "notice hint", t("diskNotListed")));
 }
 
-function diskCard(disk, info, backupSet) {
+const setRole = (id, role) => post("api/disks/role", { id, role });
+
+function diskCard(disk, info, taken) {
   const node = el("section", "card disk-card-big" + (disk.system ? " system" : ""));
   const head = el("header", "card-head");
   const appIcon = el("div", "app-icon");
@@ -849,25 +853,39 @@ function diskCard(disk, info, backupSet) {
     const actions = el("div", "part-actions");
     if (part.role === "nas") {
       row.append(el("div", "card-sub", t("nasProtected")));
-    } else if (part.role === "system") {
-      row.append(el("div", "card-sub", t("systemProtected")));
-    } else if (part.role === "backup") {
-      if (info.backup.state === "uninitialized") {
+    } else if (part.role === "backup" || part.role === "storage") {
+      row.append(el("div", "card-sub", t(part.role === "backup" ? "backupRoleText" : "storageRoleText", { name: info.storage_name })));
+      if (part.state === "uninitialized") {
         row.append(el("p", "notice", t("needsInit", { fs: FS_NAMES[part.fstype] || part.fstype || t("fsNone") })));
         const init = el("button", "btn danger", t("initialize"));
         init.onclick = () => askInitialize(disk, part);
         actions.append(init);
       }
-      const stop = el("button", "btn", t("stopBackup"));
-      stop.onclick = () => diskAction(t("confirmStopBackup"), () => api("api/disks/backup", { method: "DELETE" }));
+      // Change your mind later: switch role, or stop using the disk. Nothing is erased.
+      const other = part.role === "backup" ? "storage" : "backup";
+      if (!taken[other]) {
+        const swap = el("button", "btn", t(other === "backup" ? "switchToBackup" : "switchToStorage"));
+        swap.onclick = () => diskAction(t("confirmSwitch"), () => setRole(part.id, other));
+        actions.append(swap);
+      }
+      const stop = el("button", "btn", t("stopUsing"));
+      stop.onclick = () => diskAction(t(part.role === "backup" ? "confirmStopBackup" : "confirmStopStorage"),
+        () => setRole(part.id, "none"));
       actions.append(stop);
     } else if (part.same_disk_as_nas) {
       row.append(el("div", "card-sub", t("sameDiskAsNas")));
-    } else if (part.id && !backupSet) {
-      const use = el("button", "btn primary", t("useForBackup"));
-      use.onclick = () => diskAction(t("confirmUseBackup", { name: disk.model }),
-        () => post("api/disks/backup", { id: part.id }));
-      actions.append(use);
+    } else if (part.id) {
+      if (!taken.backup) {
+        const use = el("button", "btn primary", t("useForBackup"));
+        use.onclick = () => diskAction(t("confirmUseBackup", { name: disk.model }), () => setRole(part.id, "backup"));
+        actions.append(use);
+      }
+      if (!taken.storage) {
+        const more = el("button", "btn" + (taken.backup ? " primary" : ""), t("useForStorage"));
+        more.onclick = () => diskAction(t("confirmUseStorage", { name: disk.model }), () => setRole(part.id, "storage"));
+        actions.append(more);
+      }
+      if (!taken.backup && !taken.storage) row.append(el("div", "card-sub", t("chooseRole")));
     }
     if (actions.children.length) row.append(actions);
     body.append(row);
@@ -902,7 +920,7 @@ function askInitialize(disk, part) {
     const typed = $("format-confirm").value.trim().toUpperCase();
     if (dialog.returnValue !== "ok") return;
     if (typed !== t("formatWord")) return alert(tError("Formatting not confirmed"));
-    diskAction(t("confirmInitialize"), () => post("api/disks/initialize", { confirm: "FORMAT" }));
+    diskAction(t("confirmInitialize"), () => post("api/disks/initialize", { role: part.role, confirm: "FORMAT" }));
   };
   dialog.showModal();
 }
