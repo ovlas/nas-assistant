@@ -446,3 +446,8 @@ dialog input { width: 100%; padding: 9px 10px; border-radius: 9px; border: 1px s
   .nav-arrow { display: none; }
   .toast { left: 12px; right: 12px; width: auto; bottom: calc(76px + env(safe-area-inset-bottom)); }
 }
+
+/* Watch on the TV: what is playing, and Stop */
+.tv-bar { bottom: 84px; }
+.tv-bar i { width: 20px; height: 20px; color: var(--accent-2); flex: none; }
+@media (max-width: 760px) { .tv-bar { bottom: calc(96px + env(safe-area-inset-bottom)); } }

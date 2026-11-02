@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from urllib.parse import urlencode
 
-from . import albums, backup, devices, diskadmin, disks, favorites, media, plugplay, rawdisk, storage
+from . import albums, backup, devices, diskadmin, disks, favorites, media, plugplay, rawdisk, storage, tv
 from .auth import User, admin_user, avatar, current_user
 from .kinds import media_kind
 
@@ -23,7 +23,7 @@ import segno
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
-app = FastAPI(title="NAS Assistant", version="0.19.1")
+app = FastAPI(title="NAS Assistant", version="0.20.0")
 
 # Small boards: decode at most two big images at once. Waiting requests queue
 # here, outside the worker threads, so uploads and browsing never stall behind them.
@@ -312,6 +312,48 @@ def disks_overview(user: User = Depends(admin_user)):
     return {"disks": diskadmin.overview(), "nas": disks.state(),
             "roles": {role: {"state": state, "fstype": fstype} for role, (_, _, state, fstype) in diskadmin.ROLES.items()},
             "storage_name": storage.EXTRA_NAME, "away": plugplay.away()}
+
+
+# --- Watch on the TV ------------------------------------------------------------
+
+@app.get("/api/tv/players")
+async def tv_players(user: User = Depends(current_user)):
+    return {"players": await tv.players(), "ready": bool(LAN_IP_URL)}
+
+
+@app.post("/api/tv/play")
+async def tv_play(request: Request, user: User = Depends(current_user)):
+    """Play one file, or a slideshow (items in order), on a TV known to Home Assistant."""
+    data = await request.json()
+    entity_id, items = data.get("entity_id"), data.get("items")
+    if not (isinstance(entity_id, str) and entity_id.startswith("media_player.") and isinstance(items, list) and items
+            and all(isinstance(i, dict) and isinstance(i.get("space"), str) and isinstance(i.get("path"), str)
+                    for i in items)):
+        raise HTTPException(422, "Required fields: entity_id, items")
+    if not LAN_IP_URL:
+        raise HTTPException(503, "Home network address unknown: restart NAS Assistant")
+    files = [_source(user, i["space"], i["path"]) for i in items[:2000]]
+    await tv.play(entity_id, LAN_IP_URL, [f for f in files if f.is_file()])
+    return {"ok": True, "slideshow": len(files) > 1}
+
+
+@app.post("/api/tv/stop")
+async def tv_stop(request: Request, user: User = Depends(current_user)):
+    (entity_id,) = await _fields(request, "entity_id")
+    await tv.stop(entity_id)
+    return {"ok": True}
+
+
+@app.api_route("/tv/{token}/{name}", methods=["GET", "HEAD"])
+async def tv_file(token: str, name: str, request: Request):
+    """The file a TV asked for: only from the home network, with a link made for it."""
+    if not tv.from_home(request):
+        raise HTTPException(404, "Not found")
+    src = tv.target(token)
+    if media.kind_of(src.name) == "image":
+        out = await run_in_threadpool(tv.tv_photo, src)
+        return FileResponse(out, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+    return FileResponse(src, media_type=tv._content_type(src), headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/disk/roots")

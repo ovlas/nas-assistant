@@ -34,6 +34,7 @@ const ICON_PATHS = {
   homeAssistant: '<path fill="currentColor" stroke="none" d="M21.8,13H20V21H13V17.67L15.79,14.88L16.5,15C17.66,15 18.6,14.06 18.6,12.9C18.6,11.74 17.66,10.8 16.5,10.8A2.1,2.1 0 0,0 14.4,12.9L14.5,13.61L13,15.13V9.65C13.66,9.29 14.1,8.6 14.1,7.8A2.1,2.1 0 0,0 12,5.7A2.1,2.1 0 0,0 9.9,7.8C9.9,8.6 10.34,9.29 11,9.65V15.13L9.5,13.61L9.6,12.9A2.1,2.1 0 0,0 7.5,10.8A2.1,2.1 0 0,0 5.4,12.9A2.1,2.1 0 0,0 7.5,15L8.21,14.88L11,17.67V21H4V13H2.25C1.83,13 1.42,13 1.42,12.79C1.43,12.57 1.85,12.15 2.28,11.72L11,3C11.33,2.67 11.67,2.33 12,2.33C12.33,2.33 12.67,2.67 13,3L17,7V6H19V9L21.78,11.78C22.18,12.18 22.59,12.59 22.6,12.8C22.6,13 22.2,13 21.8,13M7.5,12A0.9,0.9 0 0,1 8.4,12.9A0.9,0.9 0 0,1 7.5,13.8A0.9,0.9 0 0,1 6.6,12.9A0.9,0.9 0 0,1 7.5,12M16.5,12C17,12 17.4,12.4 17.4,12.9C17.4,13.4 17,13.8 16.5,13.8A0.9,0.9 0 0,1 15.6,12.9A0.9,0.9 0 0,1 16.5,12M12,6.9C12.5,6.9 12.9,7.3 12.9,7.8C12.9,8.3 12.5,8.7 12,8.7C11.5,8.7 11.1,8.3 11.1,7.8C11.1,7.3 11.5,6.9 12,6.9Z"/>',
   // The current Home Assistant logo: blue house with the white circuit "tree".
   haLogo: '<path d="M12 2.6 21 10.3V20a1.6 1.6 0 0 1-1.6 1.6H4.6A1.6 1.6 0 0 1 3 20v-9.7z" fill="#18BCF2" stroke="#18BCF2" stroke-width="1.6" stroke-linejoin="round"/><g stroke="#fff" stroke-width="1.35" fill="none" stroke-linecap="round"><path d="M12 21.6V10.6M12 17.2 8.9 14.1M12 14.9l3.1-3.1"/></g><g fill="#fff" stroke="none"><circle cx="12" cy="9.4" r="1.45"/><circle cx="8.1" cy="13.3" r="1.3"/><circle cx="15.9" cy="11" r="1.3"/></g>',
+  tv: '<rect x="3" y="4.5" width="18" height="12.5" rx="2.5"/><path d="M8.5 20.5h7M12 17v3.5"/>',
   eject: '<path d="M12 4.5 4.5 13h15z"/><path d="M5 17.5h14"/>',
   album: '<rect x="3" y="7" width="14" height="13" rx="2.5"/><path d="M7 4h11.5A2.5 2.5 0 0 1 21 6.5V16"/><path d="M3.5 17l4-4 3 3 2-2 4 4"/>',
   dossier: '<path d="M3 8a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M8 13h8M8 16.5h5"/>',
@@ -139,6 +140,7 @@ function setHeader(title, subtitle) {
   document.querySelectorAll("#layout-switch button").forEach((b) => b.classList.toggle("active", b.dataset.layout === state.layout));
   $("upload-btn").hidden = ["trash", "disks", "collections", "collection"].includes(state.view) || isDisk(state.space);
   $("empty-trash").hidden = true;
+  $("tv-btn").hidden = true;  // shown by the photo views once they have items
 }
 
 function showEmpty(title, text) {
@@ -194,6 +196,7 @@ async function renderGallery() {
   }
   if (state.kind === "favorite") items = items.filter((i) => i.fav);
   state.items = items;
+  $("tv-btn").hidden = !items.length;
   const photos = items.filter((i) => i.kind === "image").length;
   const videos = items.length - photos;
   setHeader($("title").textContent,
@@ -942,6 +945,7 @@ async function renderCollection() {
   crumbs.querySelectorAll("i").forEach((i) => { i.style.width = i.style.height = "14px"; });
   state.items = col.items.filter((i) => kindOf(i.name))
     .map((i) => ({ ...i, taken: i.modified }));
+  $("tv-btn").hidden = !state.items.length;
   if (!col.items.length) return showEmpty(t("collectionEmptyTitle"), t(col.kind === "album" ? "albumEmptyText" : "dossierEmptyText"));
   if (col.kind === "album") {
     const tiles = el("div", "tiles");
@@ -1699,6 +1703,81 @@ $("v-rename").onclick = () => {
 };
 $("v-name").onclick = () => $("v-rename").click();
 $("v-album").onclick = () => addToCollection(state.items[state.viewerIndex]);
+$("v-tv").onclick = () => {
+  const item = state.items[state.viewerIndex];
+  const video = $("v-stage").querySelector("video");
+  if (video) video.pause();  // it plays on the TV now
+  playOnTv([{ space: item.space || state.space, path: item.path }], item.name);
+};
+// "On the TV" at the top: a slideshow of what the page shows, in order.
+$("tv-btn").onclick = () => playOnTv((state.items || []).map((i) => ({ space: i.space || state.space, path: i.path })),
+  $("title").textContent);
+
+// --- Watch on the TV ------------------------------------------------------------
+
+function remembered(key) {
+  try { return localStorage.getItem(key); } catch { return null; }
+}
+
+async function chooseTv() {
+  let info;
+  try {
+    info = await api("api/tv/players");
+  } catch (err) {
+    alert(err.message);
+    return null;
+  }
+  const dialog = $("tv-dialog");
+  const picks = el("div", "pick-list");
+  return new Promise((resolve) => {
+    let chosen = null;
+    dialog.onclose = () => resolve(chosen);
+    if (!info.players.length) picks.append(el("p", "muted", t("noTvs")));
+    const last = remembered("nas-tv");
+    const players = [...info.players].sort((a, b) => (b.id === last) - (a.id === last));
+    for (const player of players) {
+      const b = el("button", "pick");
+      b.append(iconEl("tv"), el("span", "", player.name), el("span", "card-sub", t(player.state === "off" ? "tvOff" : player.id === last ? "tvLast" : "tvReady")));
+      b.onclick = () => {
+        chosen = player;
+        try { localStorage.setItem("nas-tv", player.id); } catch { /* not remembered */ }
+        dialog.close();
+      };
+      picks.append(b);
+    }
+    const cancel = el("button", "btn", t("cancel"));
+    cancel.onclick = () => dialog.close();
+    const actions = el("div", "dialog-actions");
+    actions.append(cancel);
+    dialog.replaceChildren(el("h2", "", t("chooseTv")), el("p", "muted", t("chooseTvText")), picks, actions);
+    dialog.showModal();
+  });
+}
+
+let tvPlaying = null;
+async function playOnTv(items, label) {
+  if (!items.length) return;
+  const player = await chooseTv();
+  if (!player) return;
+  try {
+    await api("api/tv/play", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ entity_id: player.id, items }),
+    });
+  } catch (err) {
+    return alert(err.message);
+  }
+  tvPlaying = player;
+  $("tv-bar-text").textContent = t(items.length > 1 ? "tvSlideshow" : "tvPlaying", { name: label, tv: player.name });
+  $("tv-bar").hidden = false;
+}
+
+$("tv-stop").onclick = async () => {
+  $("tv-bar").hidden = true;
+  if (tvPlaying) await post("api/tv/stop", { entity_id: tvPlaying.id }).catch(() => {});
+  tvPlaying = null;
+};
 $("v-delete").onclick = async () => {
   if (viewerReadOnly()) return;
   const item = state.items[state.viewerIndex];

@@ -50,6 +50,7 @@
           <button data-layout="icons" data-i18n-title="layoutIcons"><i data-icon="layoutIcons"></i></button>
           <button data-layout="grid" data-i18n-title="layoutGrid"><i data-icon="layoutGrid"></i></button>
         </div>
+        <button class="btn" id="tv-btn" hidden><i data-icon="tv"></i><span data-i18n="onTv"></span></button>
         <button class="btn" id="new-folder"><i data-icon="plus"></i><span data-i18n="newFolder"></span></button>
         <button class="btn danger" id="empty-trash" hidden><i data-icon="trash"></i><span data-i18n="emptyTrash"></span></button>
         <label class="btn primary" id="upload-btn"><i data-icon="upload"></i><span data-i18n="upload"></span><input type="file" id="file-input" multiple hidden></label>
@@ -84,6 +85,7 @@
     <div class="viewer-bar">
       <button class="icon-btn" id="v-close" data-i18n-title="close"><i data-icon="close"></i></button>
       <div class="viewer-info"><div id="v-date"></div><div class="viewer-name" id="v-name"></div></div>
+      <button class="icon-btn" id="v-tv" data-i18n-title="watchOnTv"><i data-icon="tv"></i></button>
       <a class="icon-btn" id="v-download" data-i18n-title="downloadOriginal"><i data-icon="download"></i></a>
       <button class="icon-btn" id="v-fav"></button>
       <button class="icon-btn" id="v-album" data-i18n-title="addToCollection"><i data-icon="album"></i></button>
@@ -119,6 +121,8 @@
 
   <dialog id="device-dialog" class="device-dialog"></dialog>
   <dialog id="collection-dialog" class="move-dialog"></dialog>
+  <dialog id="tv-dialog" class="move-dialog"></dialog>
+  <div class="snack tv-bar" id="tv-bar" hidden><i data-icon="tv"></i><span id="tv-bar-text"></span><button id="tv-stop" data-i18n="stop"></button></div>
 
   <dialog id="format-dialog">
     <form method="dialog">

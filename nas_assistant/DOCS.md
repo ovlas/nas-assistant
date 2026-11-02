@@ -50,6 +50,19 @@ what each one is used for and how full it is. A free disk can be given a role, a
   initialized or given a role.
 - A disk that doesn't appear is not visible to Home Assistant itself: check its power supply, cable and USB port.
 
+## Watch on the TV
+
+Photos and videos can be shown on any TV or player Home Assistant knows (Chromecast / Google TV, Samsung, LG,
+Apple TV, …: add its integration in Home Assistant first):
+
+- In the viewer, the **TV** button plays the photo or video on the TV you pick (the last one is remembered).
+- In *Photos*, *Family photos* and in an album, **On the TV** starts a slideshow: photos for a few seconds each,
+  videos to the end. A bar at the bottom shows what is playing, with **Stop**.
+- Photos are sent as Full HD JPEG, so iPhone HEIC photos show on every TV. Videos are sent as they are: a TV that
+  can't play a format (e.g. HEVC on an older Chromecast) shows nothing for it.
+- The TV gets a secret link that works for a few hours and **only on the home network**: links coming through a
+  tunnel such as Cloudflare are refused. The TV fetches the file from port 8456 of Home Assistant.
+
 ## Other files on the disk
 
 A disk often holds more than NAS Assistant's folders: music, old photos, documents copied there over the years.
