@@ -106,6 +106,18 @@ def _nas_files(mount: Path) -> Optional[int]:
     return count
 
 
+def _top_folders(mount: Path) -> List[str]:
+    """Names at the top of a disk and of its "NAS Assistant" folder (read only), to find data put
+    there by hand or by an older version."""
+    names = []
+    for folder in (mount, mount / storage.DATA_FOLDER):
+        try:
+            names += [str(p.relative_to(mount)) for p in sorted(folder.iterdir())[:40]]
+        except OSError:
+            pass
+    return names
+
+
 def overview(include_system: bool = False) -> List[dict]:
     """Physical disks with their partitions and roles: nas, backup, storage or free.
     The Home Assistant system disk is left out, unless the safety checks ask for it."""
@@ -146,6 +158,9 @@ def overview(include_system: bool = False) -> List[dict]:
                 "files": _nas_files(disks.NAS_ROOT) if role == "nas" and disks.state() == "mounted" else
                          _nas_files(storage.EXTRA_MOUNT) if role == "storage" and ROLES["storage"][2] == "mounted"
                          else None,
+                "folders": _top_folders(disks.NAS_ROOT) if role == "nas" and disks.state() == "mounted" else
+                           _top_folders(storage.EXTRA_MOUNT) if role == "storage" and ROLES["storage"][2] == "mounted"
+                           else None,
                 "state": ROLES[role][2] if role in ROLES else disks.state() if role == "nas" else "",
                 # Ejected earlier from this role: offer to put it back.
                 "was": _ejected().get(by_id.get(node["path"], ""), {}).get("role", "") if role == "free" else "",
