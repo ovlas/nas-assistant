@@ -34,8 +34,15 @@ if bashio::var.has_value "${DEVICE_OPTION}" || bashio::var.has_value "${DISK}"; 
         if nas-mount "${DEVICE}" "${NAS_ROOT}"; then
             export NAS_DISK_STATE=mounted
         else
-            bashio::log.error "Can't mount ${DEVICE}. With protection mode on, choose the disk partition in the 'NAS disk device' option of the Configuration tab."
-            export NAS_DISK_STATE=missing
+            # A new disk with no filesystem at all: offer to initialize it (only on the user's request).
+            NAS_FSTYPE="$(blkid -p -s TYPE -o value "${DEVICE}" 2>/dev/null || true)"
+            if [ -z "${NAS_FSTYPE}" ]; then
+                bashio::log.warning "${DEVICE} has no filesystem: initialize it from NAS Assistant."
+                export NAS_DISK_STATE=uninitialized
+            else
+                bashio::log.error "Can't mount ${DEVICE} (${NAS_FSTYPE})."
+                export NAS_DISK_STATE=missing
+            fi
         fi
     fi
 else

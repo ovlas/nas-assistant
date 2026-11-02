@@ -25,7 +25,7 @@ from typing import Optional
 from fastapi import HTTPException
 from fastapi.concurrency import run_in_threadpool
 
-from . import disks
+from . import disks, storage
 
 log = logging.getLogger("uvicorn.error")
 
@@ -92,9 +92,11 @@ EXTRA_PREFIX = "Extra disk"
 def _sources() -> list:
     """(prefix in the backup, real folder) for each disk to copy."""
     found = [("", disks.NAS_ROOT)]
-    extra = Path(os.environ.get("NAS_STORAGE_ROOT", "/storage")) / "NAS Assistant"
-    if os.environ.get("NAS_STORAGE_STATE") == "mounted" and extra.is_dir():
-        found.append((EXTRA_PREFIX, extra))
+    if storage.EXTRA_STATE == "mounted":
+        # Only NAS Assistant's folders of the extra disk, wherever they are on it.
+        extra = storage.data_root(storage.EXTRA_MOUNT, storage.EXTRA_MOUNT / storage.DATA_FOLDER)
+        if extra.is_dir():
+            found.append((EXTRA_PREFIX, extra))
     return found
 
 

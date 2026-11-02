@@ -16,7 +16,7 @@ plus a folder shared with the whole family, on a dedicated disk of your choice.
 - 🗂️ Files catalogued by type (photos, videos, music, documents, archives); rename and move with a menu or drag and drop
 - ♻️ Recently deleted: undo, restore to the original folder, or delete forever
 - 🔌 Plug and play: known disks are taken back by themselves, new ones announced with a Home Assistant notification
-- 💽 Disks page: give a new disk a role (nightly backup or extra storage) and change it any time; initialize it only if you decide
+- 💽 Disks page: give a new disk a role (nightly backup, or extra storage joined to the NAS) and change it any time; initialize it only if you decide; no need to turn off protection mode
 - 🛡️ Add a second disk and nightly backups unlock: incremental copies with 30 days of previous versions
 - 💽 Dedicated disk, any size: HA backups stay on the main disk
 - 🧷 Uses your disk as is (ext4, exFAT, NTFS): nothing is formatted unless you ask

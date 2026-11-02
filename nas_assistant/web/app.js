@@ -1152,7 +1152,7 @@ async function diskAction(question, action) {
 
 function askInitialize(disk, part) {
   const dialog = $("format-dialog");
-  const name = el("span", "", `${disk.model} (${formatSize(part.size)})`).innerHTML;
+  const name = el("span", "", part.size ? `${disk.model} (${formatSize(part.size)})` : disk.model).innerHTML;
   $("format-text").innerHTML = t("initText", { name });
   $("format-word").innerHTML = t("formatConfirm", { word: t("formatWord") });
   $("format-confirm").value = "";
@@ -1806,6 +1806,14 @@ function showSetup(visible, disk) {
     $("disk-refresh").hidden = true;
     return;
   }
+  if (disk === "uninitialized") {
+    // The chosen NAS disk is brand new (no filesystem): preparing it is the user's call.
+    $("setup-lead").textContent = t("nasNeedsInit");
+    const init = el("button", "btn danger", t("initialize"));
+    init.onclick = () => askInitialize({ model: t("roleNas") }, { role: "nas", size: 0 });
+    $("disk-list").replaceChildren(init);
+    return;
+  }
   $("setup-lead").textContent = t(disk === "missing" ? "nasUnplugged" : "setupLead");
   loadNasCandidates();
 }
@@ -1839,9 +1847,15 @@ async function loadNasCandidates() {
     }
   }
   if (!list.children.length) list.append(el("p", "lead", t("diskNotListed")));
-  const more = el("button", "btn link subtle", t("moreOptions"));
-  more.onclick = loadDisks;
-  list.append(more);
+  // The classic setup needs every disk readable: only offered with protection mode off.
+  try {
+    const { disks: all } = await api("api/disks");
+    if (all.length && all.every((d) => d.accessible)) {
+      const more = el("button", "btn link subtle", t("moreOptions"));
+      more.onclick = loadDisks;
+      list.append(more);
+    }
+  } catch { /* not offered */ }
 }
 
 // "New disk connected": the user decides what it is for.

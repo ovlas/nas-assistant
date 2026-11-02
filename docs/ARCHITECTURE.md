@@ -80,7 +80,15 @@ App options: "Wi-Fi only", "only while charging", "only at home".
 - The add-on mounts the chosen disk inside its own container on `/nas`.
 - Recommended: the partition is picked in the add-on `device` option (`device(subsystem=block)`). The Supervisor then
   grants access to that one device and refuses the system disk, so protection mode stays on.
-  With protection mode off, `full_access` lets the web wizard list and read every disk instead.
+  The web UI sets that option itself through the Supervisor API (`/addons/self/options`) and restarts the add-on,
+  so a disk is chosen from the page without ever turning protection mode off. With protection mode off,
+  `full_access` also lets the classic wizard read every disk.
+- **Storage pool**: the extra-storage disk (`/storage`) is joined to the NAS disk. Listings merge the same folder from
+  every disk; a file is read from the disk that has it; new files go to the disk that already has their folder, else
+  the one with most free space. Each disk keeps its own `.trash`; usage is the sum. The data root on a disk is
+  `NAS Assistant/` or, for a former NAS disk, the disk root (whichever has `users/` or `family/`).
+- **Known disks** (`/data/known_disks.json`): every disk that had a role. When one is plugged in again it gets its
+  role back; a former NAS disk joins as extra storage while another NAS disk works.
 - Supported filesystems: ext4 (recommended), exFAT, NTFS (read-write via ntfs3, ntfs-3g as fallback).
 - Guided setup in the web UI: lists the disks, shows capacity, lets you **use a disk as is** (nothing is deleted)
   or format it (double confirmation).
@@ -101,7 +109,7 @@ App options: "Wi-Fi only", "only while charging", "only at home".
 - [x] Background uploads from phones: one-time QR pairing, per-device upload-only keys, resumable device uploads; iOS Shortcut as fallback
 - [ ] Mobile app (Flutter, iOS + Android): QR pairing and camera-roll backup in the background
 - [x] Backup to a second disk: nightly incremental copy with versions
-- [x] Extra-storage disk: one more folder in every space; disks get and change roles from the web UI
+- [x] Extra-storage disk joined to the NAS (one pool, free space summed); disks get and change roles from the web UI
 - [x] Files as list, icons or grid; Home Assistant profile picture
 - [x] iCloud-style welcome page
 - [x] Collections (albums, dossiers), safe eject of extra disks

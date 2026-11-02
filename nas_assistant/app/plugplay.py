@@ -2,9 +2,10 @@
 
 Every few seconds the add-on looks at /dev/disk/by-id (the host's udev names):
 
-- a disk it already knew (it had a role and was ejected, or unplugged) comes back:
-  its role is restored on its own (the add-on restarts, as Home Assistant needs to
-  grant access to a disk);
+- a disk it already knew (it ever had a role) comes back: it is taken back on its
+  own (the add-on restarts, as Home Assistant needs to grant access to a disk). An
+  old NAS disk becomes the NAS disk again if there is none, otherwise it joins the
+  pool as extra storage, so its files show up again;
 - a disk in use disappears without "Eject": it is unmounted and its role released
   (so Home Assistant can still start the add-on) and remembered for when it is back;
   for the NAS disk the NAS pauses;
@@ -19,7 +20,9 @@ import logging
 import os
 import re
 import subprocess
+import json
 import time
+from pathlib import Path
 from typing import Dict, Set
 
 import aiohttp
@@ -29,6 +32,8 @@ from . import backup, diskadmin, disks, storage
 log = logging.getLogger("uvicorn.error")
 
 POLL_SECONDS = 5
+# Every disk that ever had a role here: by-id name -> {"role", "at"}.
+KNOWN_FILE = Path(os.environ.get("NAS_KNOWN_DISKS_FILE", "/data/known_disks.json"))
 # Disks plugged in since start that have no role yet: base by-id name -> details.
 new_disks: Dict[str, dict] = {}
 _lang = "en"
@@ -141,14 +146,15 @@ async def _remember_and_release(role: str, option: str, device_id: str) -> None:
 async def _plugged(added: Set[str]) -> None:
     """Known disks get their role back on their own; new ones are announced."""
     remembered = diskadmin._ejected()
+    known = _known()
     for device_id in sorted(added):
-        entry = remembered.get(device_id)
+        entry = remembered.get(device_id) or known.get(device_id)
         if not entry:
             continue
-        role = entry["role"]
+        role = _comeback_role(entry["role"])
+        if not role:
+            continue  # its place is taken: never replace a disk in use
         if role == "nas":
-            if disks.state() == "mounted":
-                continue  # never replace a working NAS disk
             log.info("The NAS disk is back (%s): taking it back", device_id)
             info = await diskadmin._supervisor("GET", "/addons/self/info")
             options = dict(info.get("options") or {})
@@ -158,21 +164,53 @@ async def _plugged(added: Set[str]) -> None:
             diskadmin._save_ejected(remembered)
             asyncio.get_running_loop().create_task(diskadmin._restart_soon())
             return
-        if diskadmin.ROLES[role][2] in ("none", "missing"):
-            log.info("The %s disk is back (%s): restoring its role", role, device_id)
-            await diskadmin.set_role(device_id, role)
-            return
+        log.info("A known disk is back (%s): using it as %s", device_id, role)
+        await diskadmin.set_role(device_id, role)
+        return
     # The NAS disk paused with "Eject" and plugged back in: reactivate on its own.
     if disks.state() == "ejected" and diskadmin.NAS_DEVICE and os.path.exists(diskadmin.NAS_DEVICE):
         log.info("The ejected NAS disk is back: reactivating")
         asyncio.get_running_loop().create_task(diskadmin._restart_soon())
         return
     for base in sorted({_base(i) for i in added}):
-        if any(_base(i) == base for i in remembered) or base in new_disks:
+        if any(_base(i) == base for i in (*remembered, *known)) or base in new_disks:
             continue
         new_disks[base] = {"id": base, "name": _label(base), "at": int(time.time())}
         log.info("New disk connected: %s", base)
         await _notify("new", base)
+
+
+def _known() -> Dict[str, dict]:
+    try:
+        return json.loads(KNOWN_FILE.read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def remember_current() -> None:
+    """Note every by-id name of the disks in use now, with their role."""
+    known = _known()
+    in_use = {diskadmin.NAS_DEVICE: "nas"} if disks.state() == "mounted" and diskadmin.NAS_DEVICE else {}
+    for role, (_, device, state, _) in diskadmin.ROLES.items():
+        if device and state == "mounted":
+            in_use[device] = role
+    for link, real in ((str(p), os.path.realpath(p)) for p in diskadmin.BY_ID.glob("*") if diskadmin.BY_ID.is_dir()):
+        if real in in_use:
+            known[link] = {"role": in_use[real], "at": int(time.time())}
+    try:
+        KNOWN_FILE.write_text(json.dumps(known))
+    except OSError:
+        pass
+
+
+def _comeback_role(role: str) -> str:
+    """Where a known disk goes back: its old role if free; an old NAS disk joins as extra storage
+    when another NAS disk is working; "" when its place is taken."""
+    if role == "nas":
+        if disks.state() != "mounted":
+            return "nas"
+        return "storage" if diskadmin.ROLES["storage"][2] in ("none", "missing") else ""
+    return role if diskadmin.ROLES[role][2] in ("none", "missing") else ""
 
 
 def forget_new(device_id: str) -> None:
@@ -183,8 +221,11 @@ async def watch() -> None:
     await _language()
     known = _ids()
     diskadmin._known_ids = diskadmin._by_id()
-    # A remembered disk already plugged in while the add-on was stopped.
-    await _plugged({i for i in known if i in diskadmin._ejected()})
+    remember_current()
+    # A known disk already plugged in while the add-on was stopped.
+    in_use = {diskadmin.NAS_DEVICE, *(device for _, device, _, _ in diskadmin.ROLES.values())}
+    await _plugged({i for i in known if (i in diskadmin._ejected() or i in _known())
+                    and os.path.realpath(i) not in in_use})
     while True:
         await asyncio.sleep(POLL_SECONDS)
         try:

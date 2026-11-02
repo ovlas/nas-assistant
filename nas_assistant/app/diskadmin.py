@@ -41,7 +41,7 @@ ROLES = {
 }
 BACKUP_FSTYPE = ROLES["backup"][3]
 BY_ID = Path(os.environ.get("NAS_BY_ID_DIR", "/dev/disk/by-id"))
-INIT_LABELS = {"backup": "NAS Backup", "storage": "NAS Storage"}
+INIT_LABELS = {"nas": "NAS", "backup": "NAS Backup", "storage": "NAS Storage"}
 MOUNTS = {"backup": Path(os.environ.get("NAS_BACKUP_ROOT", "/backup")),
           "storage": Path(os.environ.get("NAS_STORAGE_ROOT", "/storage"))}
 # Device node -> by-id name, refreshed by the plug-and-play watcher: needed to remember a
@@ -277,14 +277,22 @@ async def eject(role: str) -> None:
 def _initialize(role: str, confirm: str) -> None:
     if confirm != disks.FORMAT_CONFIRM:
         raise HTTPException(400, "Formatting not confirmed")
-    if role not in ROLES:
+    if role == "nas":
+        # A NAS disk with no filesystem at all (run.sh checked): there is nothing on it to lose.
+        device, state = NAS_DEVICE, disks.state()
+    elif role in ROLES:
+        _, device, state, _ = ROLES[role]
+    else:
         raise HTTPException(400, "Unknown role")
-    _, device, state, _ = ROLES[role]
     # Only a disk whose filesystem the NAS can't use: a working one is never erased from here.
     if not device or state != "uninitialized":
         raise HTTPException(400, "Disk not selectable")
     # Hard guards, independent of what the page shows.
-    if NAS_DEVICE and (os.path.realpath(device) == os.path.realpath(NAS_DEVICE) or _parent(device) == _parent(NAS_DEVICE)):
+    if role != "nas" and NAS_DEVICE and (os.path.realpath(device) == os.path.realpath(NAS_DEVICE)
+                                         or _parent(device) == _parent(NAS_DEVICE)):
+        raise HTTPException(400, "Disk not selectable")
+    if role == "nas" and subprocess.run(["blkid", "-p", "-s", "TYPE", "-o", "value", device],
+                                        capture_output=True, text=True).stdout.strip():
         raise HTTPException(400, "Disk not selectable")
     if any(d["system"] and device in {d["path"], *(p["path"] for p in d["partitions"])}
            for d in overview(include_system=True)):

@@ -12,21 +12,17 @@ You need a dedicated USB or SATA disk, any size. Home Assistant backups stay on 
 
 ## Choosing the disk
 
-**Recommended — protection mode on**
+Leave **Protection mode** on: it is never needed to turn it off.
 
-1. Plug in the disk, then on this add-on's page open **Configuration**.
-2. In **NAS disk device** pick the partition of your disk (the entry ending in `-part1`, `-part2`, …).
-   The Home Assistant system disk is refused by the Supervisor.
-3. Save and restart the add-on. Your existing files stay where they are: nothing is formatted.
+1. Plug in the disk and open **NAS Assistant** from the sidebar (as an administrator).
+2. Your disks are listed (never the Home Assistant system disk): press **Use as the NAS disk** on the partition you
+   want. Your existing files stay where they are: nothing is formatted. NAS Assistant restarts to apply it
+   (Home Assistant grants the add-on access to that disk only).
+3. A brand new disk with no filesystem shows **Initialize…** instead: it runs only when you press it and type the
+   confirmation word.
 
-With protection mode on, the add-on can only touch the disk you picked.
-If that disk is unplugged, the add-on will not start until you plug it back in.
-
-**Alternative — protection mode off**
-
-Turn off **Protection mode**, restart the add-on and open **NAS Assistant** from the sidebar (as an administrator).
-Your disks are listed (never the Home Assistant system disk): pick a partition and press **Use as is**.
-Only if you want a blank disk, use **Erase everything and format** and type the confirmation word.
+You can also pick the partition yourself in **Configuration → NAS disk device**. With protection mode off, the
+classic list with **Use as is** / **Erase everything and format** is offered under **Other options** too.
 
 Supported filesystems: ext4, exFAT, NTFS. The disk is mounted again at every restart.
 If it is missing, NAS Assistant writes nothing to the main disk.
@@ -37,9 +33,11 @@ Administrators find **Disks** in the sidebar: the disks connected to Home Assist
 what each one is used for and how full it is. A free disk can be given a role, and you can change it later:
 
 - **Use for backups**: every night the NAS is copied onto it, on its own (see below).
-- **Use as extra storage**: more room for files. It appears as one more folder, named after the disk, at the top of
-  *Files* and *Shared files*, with the same per-user privacy. Files can be moved between the two disks; photos on it
-  show in the gallery; it is included in the nightly backup.
+- **Use as extra storage**: more room, joined to the NAS disk. Its files appear in the same *Files*,
+  *Shared files* and *Photos* as the others, with the same per-user privacy, and its free space adds up. New files go
+  where their folder is, otherwise to the disk with the most free space; files can be moved anywhere. Each disk keeps
+  its own trash. It is included in the nightly backup. A disk that was used by NAS Assistant before (also as the NAS
+  disk) brings its files back as they were.
 - **Eject safely**, next to each disk's name: finishes writes and unmounts the disk so you can unplug it.
   For the backup and extra-storage disks, plug it back in and **Put back as …** restores its role in one tap.
   Ejecting the NAS disk asks twice and pauses the NAS for everyone; plug it back in and press **Reactivate**.
@@ -58,6 +56,7 @@ NAS Assistant watches disks being plugged in and out:
 
 - **A disk it already knows comes back** (the backup or extra-storage disk, or the NAS disk): it takes its role back
   on its own. NAS Assistant restarts for a few seconds, which Home Assistant needs to grant access to a disk.
+  An old NAS disk plugged in while another NAS disk is working joins it as extra storage, so its files show again.
 - **A disk in use is unplugged without Eject**: it is unmounted and its role remembered for when it comes back. For
   the NAS disk the NAS pauses. Unplugging while files are being written can damage them: use **Eject** when you can.
 - **A new disk is plugged in**: nothing is decided for you. A Home Assistant notification and a banner in NAS Assistant
