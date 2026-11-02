@@ -1737,7 +1737,9 @@ async function chooseTv() {
     const players = [...info.players].sort((a, b) => (b.id === last) - (a.id === last));
     for (const player of players) {
       const b = el("button", "pick");
-      b.append(iconEl("tv"), el("span", "", player.name), el("span", "card-sub", t(player.state === "off" ? "tvOff" : player.id === last ? "tvLast" : "tvReady")));
+      const name = el("span", "", player.name);
+      if (player.detail) name.append(el("div", "card-sub", player.detail));
+      b.append(iconEl("tv"), name, el("span", "card-sub", t(player.state === "off" ? "tvOff" : player.id === last ? "tvLast" : "tvReady")));
       b.onclick = () => {
         chosen = player;
         try { localStorage.setItem("nas-tv", player.id); } catch { /* not remembered */ }

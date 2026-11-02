@@ -47,17 +47,28 @@ async def _ha(method: str, path: str, body: Optional[dict] = None):
             return await resp.json(content_type=None)
 
 
+PLAY_MEDIA = 512  # MediaPlayerEntityFeature.PLAY_MEDIA
+
+
 async def players() -> List[dict]:
-    """The media players of the house that are on or can be turned on."""
+    """The players of the house that can show a picture: they accept a link to play,
+    and are not speakers (Music Assistant players are audio only)."""
     states = await _ha("GET", "/states")
     found = []
     for item in states:
         entity_id = item.get("entity_id", "")
-        if not entity_id.startswith("media_player.") or item.get("state") in ("unavailable", "unknown"):
-            continue
         attrs = item.get("attributes") or {}
+        if (not entity_id.startswith("media_player.") or item.get("state") in ("unavailable", "unknown")
+                or not int(attrs.get("supported_features") or 0) & PLAY_MEDIA
+                or attrs.get("device_class") == "speaker" or "mass_player_type" in attrs):
+            continue
         found.append({"id": entity_id, "name": attrs.get("friendly_name") or entity_id,
-                      "state": item.get("state"), "playing": entity_id in _shows})
+                      "state": item.get("state"), "playing": entity_id in _shows, "detail": ""})
+    # Two integrations for the same TV share its name: tell them apart.
+    names = [p["name"] for p in found]
+    for player in found:
+        if names.count(player["name"]) > 1:
+            player["detail"] = player["id"].split(".", 1)[1]
     return sorted(found, key=lambda p: (p["state"] == "off", p["name"].lower()))
 
 
