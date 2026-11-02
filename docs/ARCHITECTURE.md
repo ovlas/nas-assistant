@@ -104,6 +104,7 @@ App options: "Wi-Fi only", "only while charging", "only at home".
 - [x] Extra-storage disk: one more folder in every space; disks get and change roles from the web UI
 - [x] Files as list, icons or grid; Home Assistant profile picture
 - [x] iCloud-style welcome page
+- [x] Collections (albums, dossiers), safe eject of extra disks
 - [x] Favorites for files, folders, photos and videos
 - [x] Recently deleted with restore, delete forever and undo; inline rename
 - [x] Multilingual UI (English, Italiano, Español, Français, Deutsch)

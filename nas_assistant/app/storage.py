@@ -110,6 +110,12 @@ def _walk(user: User, space: str):
             yield Path(folder), files
 
 
+def _clean_rel(path: str) -> str:
+    """A stored relative path in one canonical form ("" for the space root)."""
+    path = path.strip("/")
+    return os.path.normpath(path) if path else ""
+
+
 def _check_name(name: str) -> str:
     name = name.strip()
     if not name or name in (".", "..") or "/" in name or "\\" in name or name.startswith("."):

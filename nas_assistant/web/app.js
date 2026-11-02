@@ -34,6 +34,8 @@ const ICON_PATHS = {
   homeAssistant: '<path fill="currentColor" stroke="none" d="M21.8,13H20V21H13V17.67L15.79,14.88L16.5,15C17.66,15 18.6,14.06 18.6,12.9C18.6,11.74 17.66,10.8 16.5,10.8A2.1,2.1 0 0,0 14.4,12.9L14.5,13.61L13,15.13V9.65C13.66,9.29 14.1,8.6 14.1,7.8A2.1,2.1 0 0,0 12,5.7A2.1,2.1 0 0,0 9.9,7.8C9.9,8.6 10.34,9.29 11,9.65V15.13L9.5,13.61L9.6,12.9A2.1,2.1 0 0,0 7.5,10.8A2.1,2.1 0 0,0 5.4,12.9A2.1,2.1 0 0,0 7.5,15L8.21,14.88L11,17.67V21H4V13H2.25C1.83,13 1.42,13 1.42,12.79C1.43,12.57 1.85,12.15 2.28,11.72L11,3C11.33,2.67 11.67,2.33 12,2.33C12.33,2.33 12.67,2.67 13,3L17,7V6H19V9L21.78,11.78C22.18,12.18 22.59,12.59 22.6,12.8C22.6,13 22.2,13 21.8,13M7.5,12A0.9,0.9 0 0,1 8.4,12.9A0.9,0.9 0 0,1 7.5,13.8A0.9,0.9 0 0,1 6.6,12.9A0.9,0.9 0 0,1 7.5,12M16.5,12C17,12 17.4,12.4 17.4,12.9C17.4,13.4 17,13.8 16.5,13.8A0.9,0.9 0 0,1 15.6,12.9A0.9,0.9 0 0,1 16.5,12M12,6.9C12.5,6.9 12.9,7.3 12.9,7.8C12.9,8.3 12.5,8.7 12,8.7C11.5,8.7 11.1,8.3 11.1,7.8C11.1,7.3 11.5,6.9 12,6.9Z"/>',
   // The current Home Assistant logo: blue house with the white circuit "tree".
   haLogo: '<path d="M12 2.6 21 10.3V20a1.6 1.6 0 0 1-1.6 1.6H4.6A1.6 1.6 0 0 1 3 20v-9.7z" fill="#18BCF2" stroke="#18BCF2" stroke-width="1.6" stroke-linejoin="round"/><g stroke="#fff" stroke-width="1.35" fill="none" stroke-linecap="round"><path d="M12 21.6V10.6M12 17.2 8.9 14.1M12 14.9l3.1-3.1"/></g><g fill="#fff" stroke="none"><circle cx="12" cy="9.4" r="1.45"/><circle cx="8.1" cy="13.3" r="1.3"/><circle cx="15.9" cy="11" r="1.3"/></g>',
+  album: '<rect x="3" y="7" width="14" height="13" rx="2.5"/><path d="M7 4h11.5A2.5 2.5 0 0 1 21 6.5V16"/><path d="M3.5 17l4-4 3 3 2-2 4 4"/>',
+  dossier: '<path d="M3 8a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M8 13h8M8 16.5h5"/>',
   sidebar: '<rect x="3.5" y="4.5" width="17" height="15" rx="3"/><path d="M9.5 4.5v15"/>',
   layoutList: '<path d="M8.5 6.5h11M8.5 12h11M8.5 17.5h11"/><circle cx="4.8" cy="6.5" r=".9" fill="currentColor"/><circle cx="4.8" cy="12" r=".9" fill="currentColor"/><circle cx="4.8" cy="17.5" r=".9" fill="currentColor"/>',
   layoutIcons: '<rect x="4" y="4" width="6.5" height="6.5" rx="1.6"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.6"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.6"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.6"/>',
@@ -119,8 +121,9 @@ function fadeIn(img) {
 function go(space, view, path = "", kind = "all") {
   Object.assign(state, { space, view, path, kind });
   closeMenu();
+  const navView = view === "collection" ? "collections" : view;
   document.querySelectorAll(".nav-item").forEach((b) =>
-    b.classList.toggle("active", b.dataset.space === space && b.dataset.view === view));
+    b.classList.toggle("active", b.dataset.space === (view === "collection" ? "personal" : space) && b.dataset.view === navView));
   render();
 }
 
@@ -130,7 +133,7 @@ function setHeader(title, subtitle) {
   $("new-folder").hidden = state.view !== "files";
   $("layout-switch").hidden = state.view !== "files";
   document.querySelectorAll("#layout-switch button").forEach((b) => b.classList.toggle("active", b.dataset.layout === state.layout));
-  $("upload-btn").hidden = state.view === "trash" || state.view === "disks";
+  $("upload-btn").hidden = ["trash", "disks", "collections", "collection"].includes(state.view);
   $("empty-trash").hidden = true;
 }
 
@@ -153,11 +156,15 @@ function render() {
   $("home").replaceChildren();
   $("disks").replaceChildren();
   $("disks").hidden = state.view !== "disks";
+  $("collections").replaceChildren();
+  $("collections").hidden = state.view !== "collections";
   showEmpty(null);
   document.body.classList.toggle("on-home", state.view === "home");
   $("home").hidden = state.view !== "home";
   if (state.view === "home") return renderHome();
   if (state.view === "disks") return renderDisks();
+  if (state.view === "collections") return renderCollections();
+  if (state.view === "collection") return renderCollection();
   if (state.view === "trash") return renderTrash();
   return state.view === "photos" ? renderGallery() : renderFiles();
 }
@@ -217,7 +224,7 @@ function tile(item, index) {
   img.loading = "lazy";
   img.alt = item.name;
   fadeIn(img);
-  img.src = thumbUrl(item.path, item.v);
+  img.src = thumbUrl(item.path, item.v, "s", item.space || state.space);
   node.append(img);
   if (item.kind === "video") {
     const badge = el("span", "badge");
@@ -282,7 +289,7 @@ function renderChips(filters = KIND_FILTERS) {
 }
 
 async function toggleFavorite(item) {
-  await post("api/favorites", { space: state.space, path: item.path, favorite: item.fav ? "0" : "1" });
+  await post("api/favorites", { space: item.space || state.space, path: item.path, favorite: item.fav ? "0" : "1" });
   item.fav = !item.fav;
 }
 
@@ -310,7 +317,7 @@ function fileRow(entry) {
   if (kind) {
     const img = el("img");
     img.loading = "lazy";
-    img.src = thumbUrl(path, entry.v);
+    img.src = thumbUrl(path, entry.v, "s", entry.space || state.space);
     img.onerror = () => { thumb.innerHTML = ""; thumb.append(iconEl(KIND_ICONS[kind])); };
     thumb.append(img);
   } else {
@@ -365,7 +372,7 @@ function fileRow(entry) {
   row.onclick = () => {
     if (entry.is_dir) return go(state.space, "files", path);
     if (kind) return openViewer(state.items.findIndex((i) => i.path === path));
-    window.open(fileUrl(path, true), "_blank");
+    window.open(fileUrl(path, true, entry.space || state.space), "_blank");
   };
   return row;
 }
@@ -423,14 +430,15 @@ const APP_COLORS = {
   trash: "linear-gradient(135deg, #aeaeb2, #636366)",
   backup: "linear-gradient(135deg, #5e5ce6, #0a84ff)",
   devices: "linear-gradient(135deg, #64d2ff, #30d158)",
+  collections: "linear-gradient(135deg, #ffd60a, #ff9f0a)",
 };
 
 async function renderHome() {
   const seq = renderSeq;
   let data, status;
   try {
-    [data, status, state.backup, state.devices] = await Promise.all(
-      [api("api/home"), api("api/status"), api("api/backup"), api("api/devices")]);
+    [data, status, state.backup, state.devices, state.collections] = await Promise.all(
+      [api("api/home"), api("api/status"), api("api/backup"), api("api/devices"), api("api/collections")]);
   } catch (err) {
     return stale(seq) || showEmpty(t("homeLoadError"), err.message);
   }
@@ -442,8 +450,9 @@ async function renderHome() {
     familyCard(data.family),
     backupCard(state.backup),
     trashCard(data.trash),
-    favoritesCard(data.favorites),
+    collectionsCard(state.collections.collections),
     devicesCard(state.devices),
+    favoritesCard(data.favorites),
   );
 }
 
@@ -803,6 +812,206 @@ function trashCard(count) {
   return node;
 }
 
+// --- Collections: albums and dossiers --------------------------------------------
+
+async function renderCollections() {
+  setHeader(t("collections"), t("collectionsSub"));
+  const seq = renderSeq;
+  let list;
+  try {
+    ({ collections: list } = await api("api/collections"));
+  } catch (err) {
+    return stale(seq) || showEmpty(t("collectionsLoadError"), err.message);
+  }
+  if (stale(seq)) return;
+  const page = $("collections");
+  const bar = el("div", "collection-bar");
+  for (const kind of ["album", "dossier"]) {
+    const b = el("button", "btn" + (kind === "album" ? " primary" : ""));
+    b.append(iconEl(kind), el("span", "", t(kind === "album" ? "newAlbum" : "newDossier")));
+    b.onclick = () => newCollection(kind);
+    bar.append(b);
+  }
+  page.append(bar);
+  if (!list.length) {
+    page.append(el("p", "notice hint", t("collectionsHow")));
+    return;
+  }
+  const grid = el("div", "collection-grid");
+  for (const col of list) grid.append(collectionCard(col));
+  page.append(grid);
+}
+
+function collectionCard(col) {
+  const node = el("button", "collection-card");
+  const cover = el("div", "collection-cover" + (col.covers.length ? "" : " empty"));
+  if (col.covers.length) {
+    for (const c of col.covers.slice(0, col.covers.length >= 4 ? 4 : 1)) {
+      const img = el("img");
+      img.loading = "lazy";
+      fadeIn(img);
+      img.src = thumbUrl(c.path, c.v, "s", c.space);
+      cover.append(img);
+    }
+    cover.classList.toggle("quad", col.covers.length >= 4);
+  } else {
+    cover.append(iconEl(col.kind));
+  }
+  const meta = [t("itemCount", { n: col.count }), col.shared ? t("sharedBadge") : ""].filter(Boolean).join(" · ");
+  node.append(cover, el("div", "collection-name", col.name), el("div", "card-sub", meta));
+  node.onclick = () => openCollection(col.id);
+  return node;
+}
+
+function openCollection(id) {
+  state.collection = id;
+  go("personal", "collection");
+}
+
+async function renderCollection() {
+  const seq = renderSeq;
+  let col;
+  try {
+    col = await api(`api/collections/items?${qs({ id: state.collection })}`);
+  } catch (err) {
+    return stale(seq) || showEmpty(t("collectionsLoadError"), err.message);
+  }
+  if (stale(seq)) return;
+  setHeader(col.name, [t(col.kind === "album" ? "albumKind" : "dossierKind"), t("itemCount", { n: col.items.length }),
+    col.shared ? t("sharedBadge") : ""].filter(Boolean).join(" · "));
+  const crumbs = $("crumbs");
+  const back = el("a", "", t("collections"));
+  back.onclick = () => go("personal", "collections");
+  const rename = el("a", "", t("rename"));
+  rename.onclick = async () => {
+    const name = prompt(t("collectionName"), col.name);
+    if (!name || name === col.name) return;
+    try { await post("api/collections/rename", { id: col.id, name }); } catch (err) { alert(err.message); }
+    render();
+  };
+  crumbs.append(back, iconEl("right"), el("a", "", col.name), el("span", "crumb-gap"), rename);
+  if (col.mine || (state.user && state.user.is_admin)) {
+    const del = el("a", "danger-link", t("deleteCollection"));
+    del.onclick = async () => {
+      if (!confirm(t("confirmDeleteCollection", { name: col.name }))) return;
+      await api(`api/collections?${qs({ id: col.id })}`, { method: "DELETE" });
+      go("personal", "collections");
+    };
+    crumbs.append(del);
+  }
+  crumbs.querySelectorAll("i").forEach((i) => { i.style.width = i.style.height = "14px"; });
+  state.items = col.items.filter((i) => kindOf(i.name))
+    .map((i) => ({ ...i, taken: i.modified }));
+  if (!col.items.length) return showEmpty(t("collectionEmptyTitle"), t(col.kind === "album" ? "albumEmptyText" : "dossierEmptyText"));
+  if (col.kind === "album") {
+    const tiles = el("div", "tiles");
+    col.items.forEach((item) => {
+      const index = state.items.findIndex((i) => i.space === item.space && i.path === item.path);
+      if (index >= 0) tiles.append(tile(state.items[index], index));
+    });
+    const others = col.items.filter((i) => !kindOf(i.name));
+    $("gallery").append(tiles);
+    if (others.length) {
+      $("files").className = "file-list layout-list";
+      for (const entry of others) $("files").append(fileRow(entry));
+    }
+  } else {
+    $("files").className = `file-list layout-${state.layout}`;
+    for (const entry of col.items) $("files").append(fileRow(entry));
+  }
+}
+
+async function removeFromCollection(entry) {
+  await api(`api/collections/items?${qs({ id: state.collection, space: entry.space, path: entry.path })}`,
+    { method: "DELETE" });
+}
+
+// New collection: a name, and whether the whole family sees it.
+function collectionForm(kind, onDone) {
+  const dialog = $("collection-dialog");
+  const name = el("input");
+  name.placeholder = t("collectionName");
+  const shared = el("input");
+  shared.type = "checkbox";
+  const label = el("label", "check-row");
+  label.append(shared, el("span", "", t("shareWithFamily")));
+  const ok = el("button", "btn primary", t("create"));
+  const cancel = el("button", "btn", t("cancel"));
+  cancel.onclick = () => dialog.close();
+  ok.onclick = async () => {
+    if (!name.value.trim()) return name.focus();
+    try {
+      const { id } = await post("api/collections", { name: name.value, kind, shared: shared.checked ? "1" : "0" });
+      dialog.close();
+      onDone(id, name.value.trim());
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+  const actions = el("div", "dialog-actions");
+  actions.append(cancel, ok);
+  dialog.replaceChildren(el("h2", "", t(kind === "album" ? "newAlbum" : "newDossier")), name, label,
+    el("p", "card-sub wrap", t("shareHint")), actions);
+  dialog.showModal();
+  name.focus();
+}
+
+function newCollection(kind) {
+  collectionForm(kind, (id) => openCollection(id));
+}
+
+// "Add to collection…": pick one, or make a new one on the spot.
+async function addToCollection(entry) {
+  const space = entry.space || state.space;
+  let list;
+  try {
+    ({ collections: list } = await api("api/collections"));
+  } catch (err) {
+    return alert(err.message);
+  }
+  // Private files can't go into a shared collection.
+  const fits = list.filter((c) => space === "family" || !c.shared);
+  const dialog = $("collection-dialog");
+  const picks = el("div", "pick-list");
+  const add = async (id) => {
+    try {
+      await post("api/collections/items", { id, space, path: entry.path });
+      dialog.close();
+      snack(t("addedToCollection", { name: (list.find((c) => c.id === id) || { name: "" }).name }));
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+  if (!fits.length) picks.append(el("p", "muted", t("noCollections")));
+  for (const col of fits) {
+    const b = el("button", "pick");
+    b.append(iconEl(col.kind), el("span", "", col.name), el("span", "card-sub", col.shared ? t("sharedBadge") : ""));
+    b.onclick = () => add(col.id);
+    picks.append(b);
+  }
+  const create = el("button", "btn", t("newCollection"));
+  create.onclick = () => collectionForm(kindOf(entry.name) ? "album" : "dossier", (id, name) => {
+    list.push({ id, name });
+    add(id);
+  });
+  const cancel = el("button", "btn", t("cancel"));
+  cancel.onclick = () => dialog.close();
+  const actions = el("div", "dialog-actions");
+  actions.append(create, cancel);
+  dialog.replaceChildren(el("h2", "", t("addToCollectionTitle", { name: entry.name })), picks, actions);
+  dialog.showModal();
+}
+
+function collectionsCard(list) {
+  const node = card("collections-card", "album", APP_COLORS.collections, t("collections"),
+    list.length ? t("collectionCount", { n: list.length }) : t("collectionsSub"), () => go("personal", "collections"));
+  const grid = el("div", "collection-grid mini");
+  for (const col of list.slice(0, 4)) grid.append(collectionCard(col));
+  if (!list.length) node.append(el("p", "card-empty", t("collectionsHow")));
+  else node.append(grid);
+  return node;
+}
+
 // --- Disks (administrators) -----------------------------------------------------
 
 const ROLE_LABELS = { nas: "roleNas", backup: "roleBackup", storage: "roleStorage", system: "roleSystem", free: "roleFree" };
@@ -870,12 +1079,32 @@ function diskCard(disk, info, taken) {
         swap.onclick = () => diskAction(t("confirmSwitch"), () => setRole(part.id, other));
         actions.append(swap);
       }
+      if (part.state === "mounted") {
+        const eject = el("button", "btn primary", t("eject"));
+        eject.onclick = async () => {
+          if (!confirm(t("confirmEject", { name: disk.model }))) return;
+          try {
+            await post("api/disks/eject", { role: part.role });
+            snack(t("ejected", { name: disk.model }));
+          } catch (err) {
+            alert(err.message);
+          }
+          render();
+        };
+        actions.append(eject);
+      }
       const stop = el("button", "btn", t("stopUsing"));
       stop.onclick = () => diskAction(t(part.role === "backup" ? "confirmStopBackup" : "confirmStopStorage"),
         () => setRole(part.id, "none"));
       actions.append(stop);
     } else if (part.same_disk_as_nas) {
       row.append(el("div", "card-sub", t("sameDiskAsNas")));
+    } else if (part.id && part.was && !taken[part.was]) {
+      // Ejected earlier: one tap puts it back where it was.
+      row.append(el("div", "card-sub", t("wasRole", { role: t(ROLE_LABELS[part.was]) })));
+      const back = el("button", "btn primary", t("reattach", { role: t(ROLE_LABELS[part.was]) }));
+      back.onclick = () => diskAction(t("confirmSwitch"), () => setRole(part.id, part.was));
+      actions.append(back);
     } else if (part.id) {
       if (!taken.backup) {
         const use = el("button", "btn primary", t("useForBackup"));
@@ -1159,6 +1388,15 @@ function openMenu(entry, rect) {
     b.onclick = () => { closeMenu(); action(); };
     menu.append(b);
   };
+  if (state.view === "collection") {
+    // Inside a collection: the file stays where it is, only the grouping changes.
+    const folder = entry.path.includes("/") ? entry.path.slice(0, entry.path.lastIndexOf("/")) : "";
+    item("folder", t("showInFolder"), () => go(entry.space, "files", folder));
+    item("download", t("download"), () => { location.href = fileUrl(entry.path, false, entry.space); });
+    item("close", t("removeFromCollection"), async () => { await removeFromCollection(entry); render(); }, true);
+    return placeMenu(menu, rect);
+  }
+  if (!entry.is_dir) item("album", t("addToCollection"), () => addToCollection(entry));
   item(entry.fav ? "heartFill" : "heart", t(entry.fav ? "unfavorite" : "favorite"), async () => {
     await toggleFavorite(entry);
     render();
@@ -1170,6 +1408,10 @@ function openMenu(entry, rect) {
     await removeItem(entry.path);
     render();
   }, true);
+  placeMenu(menu, rect);
+}
+
+function placeMenu(menu, rect) {
   menu.hidden = false;
   // Open below the button, or above it near the bottom of the screen.
   const { offsetWidth: w, offsetHeight: h } = menu;
@@ -1260,26 +1502,27 @@ function showViewerItem() {
   stage.innerHTML = "";
   if (item.kind === "video") {
     const video = el("video");
-    video.src = fileUrl(item.path, true);
+    video.src = fileUrl(item.path, true, item.space || state.space);
     video.controls = true;
     video.autoplay = true;
     video.playsInline = true;
-    video.poster = thumbUrl(item.path, item.v, "l");
+    video.poster = thumbUrl(item.path, item.v, "l", item.space || state.space);
     stage.append(video);
   } else {
     const img = el("img");
-    img.src = thumbUrl(item.path, item.v, "l");
+    img.src = thumbUrl(item.path, item.v, "l", item.space || state.space);
     img.alt = item.name;
     stage.append(img);
     // Preload the neighbours so swiping feels instant.
     for (const n of [state.items[state.viewerIndex + 1], state.items[state.viewerIndex - 1]]) {
-      if (n && n.kind === "image") new Image().src = thumbUrl(n.path, n.v, "l");
+      if (n && n.kind === "image") new Image().src = thumbUrl(n.path, n.v, "l", n.space || state.space);
     }
   }
   const date = new Date(item.taken * 1000);
   $("v-date").textContent = `${dayFmt.format(date)} · ${timeFmt.format(date)}`;
   $("v-name").textContent = item.name;
-  $("v-download").href = fileUrl(item.path);
+  $("v-download").href = fileUrl(item.path, false, item.space || state.space);
+  $("v-delete").title = t(state.view === "collection" ? "removeFromCollection" : "moveToTrash");
   paintFavButton(item);
   $("v-prev").hidden = state.viewerIndex === 0;
   $("v-next").hidden = state.viewerIndex === state.items.length - 1;
@@ -1316,7 +1559,7 @@ $("v-fav").onclick = async () => {
 $("v-rename").onclick = () => {
   const item = state.items[state.viewerIndex];
   inlineRename($("v-name"), { name: item.name, is_dir: false }, async (name) => {
-    const { name: saved } = await post("api/rename", { space: state.space, path: item.path, name });
+    const { name: saved } = await post("api/rename", { space: item.space || state.space, path: item.path, name });
     const folder = item.path.includes("/") ? item.path.slice(0, item.path.lastIndexOf("/") + 1) : "";
     Object.assign(item, { name: saved, path: folder + saved });
     showViewerItem();
@@ -1324,8 +1567,17 @@ $("v-rename").onclick = () => {
   });
 };
 $("v-name").onclick = () => $("v-rename").click();
+$("v-album").onclick = () => addToCollection(state.items[state.viewerIndex]);
 $("v-delete").onclick = async () => {
   const item = state.items[state.viewerIndex];
+  // In an album the bin icon takes the photo out of the album; the file stays.
+  if (state.view === "collection") {
+    await removeFromCollection(item);
+    state.items.splice(state.viewerIndex, 1);
+    if (state.viewerIndex >= state.items.length) state.viewerIndex--;
+    viewerChanged = true;
+    return state.items.length ? showViewerItem() : closeViewer();
+  }
   await removeItem(item.path);
   state.items.splice(state.viewerIndex, 1);
   if (state.viewerIndex >= state.items.length) state.viewerIndex--;

@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from urllib.parse import urlencode
 
-from . import backup, devices, diskadmin, disks, favorites, media, storage
+from . import albums, backup, devices, diskadmin, disks, favorites, media, storage
 from .auth import User, admin_user, avatar, current_user
 from .kinds import media_kind
 
@@ -23,7 +23,7 @@ import segno
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
-app = FastAPI(title="NAS Assistant", version="0.15.1")
+app = FastAPI(title="NAS Assistant", version="0.16.0")
 
 # Small boards: decode at most two big images at once. Waiting requests queue
 # here, outside the worker threads, so uploads and browsing never stall behind them.
@@ -308,6 +308,14 @@ async def set_disk_role(request: Request, user: User = Depends(admin_user)):
     return {"ok": True, "restarting": True}
 
 
+@app.post("/api/disks/eject")
+async def eject_disk(request: Request, user: User = Depends(admin_user)):
+    """Safely eject the backup or extra-storage disk (never the NAS disk)."""
+    (role,) = await _fields(request, "role")
+    await diskadmin.eject(role)
+    return {"ok": True}
+
+
 @app.post("/api/disks/initialize")
 async def initialize_disk(request: Request, user: User = Depends(admin_user)):
     """Erase the backup or storage disk and make it ext4, only when its filesystem can't be used."""
@@ -365,7 +373,9 @@ async def set_favorite(request: Request, user: User = Depends(current_user)):
 async def rename(request: Request, user: User = Depends(current_user)):
     space, path, name = await _fields(request, "space", "path", "name")
     result = storage.rename(user, space, path, name)
-    favorites.moved(user, space, path, space, os.path.join(os.path.dirname(path.strip("/")), result["name"]))
+    new_path = os.path.join(os.path.dirname(path.strip("/")), result["name"])
+    favorites.moved(user, space, path, space, new_path)
+    albums.moved(user, space, path, space, new_path)
     return result
 
 
@@ -374,6 +384,7 @@ async def move(request: Request, user: User = Depends(current_user)):
     space, path, to_space, to_path = await _fields(request, "space", "path", "to_space", "to_path", optional=("to_path",))
     result = await run_in_threadpool(storage.move, user, space, path, to_space, to_path)
     favorites.moved(user, space, path, to_space, result["path"])
+    albums.moved(user, space, path, to_space, result["path"])
     return result
 
 
@@ -393,6 +404,55 @@ def home(user: User = Depends(current_user)):
         "favorites": favorites.listing(user, "personal")[:6],
         "trash": storage.trash_count(user),
     }
+
+
+# --- Collections: albums and dossiers -------------------------------------------
+
+@app.get("/api/collections")
+def list_collections(user: User = Depends(current_user)):
+    return {"collections": albums.listing(user)}
+
+
+@app.post("/api/collections")
+async def create_collection(request: Request, user: User = Depends(current_user)):
+    """Body: name, kind (album or dossier), shared ("1" for the whole family)."""
+    name, kind, shared = await _fields(request, "name", "kind", "shared", optional=("shared",))
+    return albums.create(user, name, kind, shared in ("1", "true"))
+
+
+@app.post("/api/collections/rename")
+async def rename_collection(request: Request, user: User = Depends(current_user)):
+    collection_id, name = await _fields(request, "id", "name")
+    albums.rename(user, collection_id, name)
+    return {"ok": True}
+
+
+@app.delete("/api/collections")
+def delete_collection(id: str, user: User = Depends(current_user)):
+    albums.delete(user, id)
+    return {"ok": True}
+
+
+@app.get("/api/collections/items")
+def collection_items(id: str, user: User = Depends(current_user)):
+    data = albums.items(user, id)
+    favs = {space: favorites.paths(user, space) for space in storage.SPACES}
+    for item in data["items"]:
+        item["fav"] = item["path"] in favs[item["space"]]
+    return data
+
+
+@app.post("/api/collections/items")
+async def add_to_collection(request: Request, user: User = Depends(current_user)):
+    collection_id, space, path = await _fields(request, "id", "space", "path")
+    albums.add(user, collection_id, space, path)
+    return {"ok": True}
+
+
+@app.delete("/api/collections/items")
+def remove_from_collection(id: str, space: str, path: str, user: User = Depends(current_user)):
+    albums.remove(user, id, space, path)
+    return {"ok": True}
 
 
 @app.get("/api/photos")
@@ -510,6 +570,7 @@ async def download(space: str, path: str, inline: bool = False, user: User = Dep
 async def delete(space: str, path: str, user: User = Depends(current_user)):
     item_id = storage.move_to_trash(user, space, path)
     favorites.removed(user, space, path)
+    albums.removed(user, space, path)
     return {"id": item_id}
 
 

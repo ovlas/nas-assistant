@@ -11,6 +11,7 @@ plus a folder shared with the whole family, on a dedicated disk of your choice.
 - 🏠 iCloud-style welcome page: storage, latest photos, recent files, family activity
 - 🖼️ Apple-style photo and video gallery: monthly timeline, full-screen viewer, iPhone HEIC photos
 - 👨‍👩‍👧 Shared Family folder
+- 🗂️ Collections: photo albums and document dossiers, personal or shared with the family
 - ❤️ Favorites for photos, videos, files and folders
 - 🗂️ Files catalogued by type (photos, videos, music, documents, archives); rename and move with a menu or drag and drop
 - ♻️ Recently deleted: undo, restore to the original folder, or delete forever

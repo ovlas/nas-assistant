@@ -112,8 +112,8 @@ body.on-home .topbar, body.on-home .crumbs, body.on-home .chips { display: none;
 .home { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; max-width: 1240px; margin: 12px auto 0; }
 .card { background: var(--card-bg); border-radius: 22px; overflow: hidden; backdrop-filter: blur(24px) saturate(160%);
         box-shadow: 0 0 0 1px var(--card-line), 0 18px 50px rgba(0,0,0,.18); display: flex; flex-direction: column; min-height: 0; }
-.photos-card, .files-card, .backup-card { grid-column: span 2; }
-.fav-card { grid-column: span 2; }
+.photos-card, .files-card, .backup-card, .collections-card { grid-column: span 2; }
+.fav-card { grid-column: span 3; }
 .device-list { display: flex; flex-direction: column; gap: 4px; width: 100%; }
 .device-row { display: flex; align-items: center; gap: 12px; padding: 6px 4px; }
 .device-row > i { width: 22px; height: 22px; color: var(--accent); }
@@ -167,7 +167,7 @@ body.on-home .topbar, body.on-home .crumbs, body.on-home .chips { display: none;
 .mosaic-cell:hover img { transform: scale(1.04); }
 .home-list { display: grid; grid-template-columns: 1fr; padding: 6px 10px 12px; }
 .files-card .home-list { grid-template-columns: 1fr 1fr; column-gap: 18px; }
-.fav-card .home-list { grid-template-columns: 1fr 1fr; column-gap: 18px; }
+.fav-card .home-list { grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: 18px; }
 .home-row { display: flex; align-items: center; gap: 12px; padding: 9px 10px; border: 0; border-radius: 12px; background: none;
             color: inherit; font: inherit; text-align: left; cursor: pointer; min-width: 0; }
 .home-row:hover { background: var(--card-head); }
@@ -341,6 +341,28 @@ dialog input { width: 100%; padding: 9px 10px; border-radius: 9px; border: 1px s
 .role-storage { background: rgba(255,159,10,.2); color: #ff9f0a; }
 .notice.hint { background: var(--panel); color: var(--muted); box-shadow: var(--shadow); }
 
+/* --- Collections ---------------------------------------------------------- */
+.collections { display: flex; flex-direction: column; gap: 18px; }
+.collection-bar { display: flex; gap: 10px; flex-wrap: wrap; }
+.collection-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 20px; }
+.collection-grid.mini { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 14px; padding: 16px 20px 20px; }
+.collection-card { display: flex; flex-direction: column; gap: 4px; padding: 0; border: 0; background: none; color: inherit;
+                   font: inherit; text-align: left; cursor: pointer; min-width: 0; }
+.collection-cover { aspect-ratio: 1; border-radius: 16px; overflow: hidden; background: var(--panel); box-shadow: var(--shadow);
+                    display: grid; place-items: center; color: var(--accent); transition: transform .15s; }
+.collection-cover.quad { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 2px; }
+.collection-cover img { width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity .25s; }
+.collection-cover img.loaded { opacity: 1; }
+.collection-cover.empty i { width: 46px; height: 46px; opacity: .8; }
+.collection-card:hover .collection-cover { transform: translateY(-2px); }
+.collection-name { font-weight: 600; margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.crumb-gap { flex: 1; }
+.crumbs .danger-link { color: var(--danger); }
+.check-row { display: flex; align-items: center; gap: 8px; margin: 12px 0 4px; cursor: pointer; }
+.check-row input { width: auto; }
+#collection-dialog input:not([type]) { margin-top: 6px; }
+.pick .card-sub { flex: none; }
+
 /* --- Action menu, move dialog ------------------------------------------ */
 .menu { backdrop-filter: blur(24px) saturate(160%); position: fixed; z-index: 50; min-width: 210px; padding: 6px; border-radius: 13px; background: var(--panel);
         box-shadow: 0 0 0 1px var(--line), 0 12px 40px rgba(0,0,0,.2); }
@@ -392,13 +414,13 @@ dialog input { width: 100%; padding: 9px 10px; border-radius: 9px; border: 1px s
   .row { grid-template-columns: 44px 1fr auto; }
   .row .meta { display: none; }
   .home { grid-template-columns: 1fr; gap: 16px; margin-top: 0; }
-  .photos-card, .files-card, .fav-card, .backup-card { grid-column: auto; }
+  .photos-card, .files-card, .fav-card, .backup-card, .collections-card { grid-column: auto; }
   .files-card .home-list, .fav-card .home-list { grid-template-columns: 1fr; }
   .layout-icons { grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); }
   .layout-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px !important; }
   .cell .row-actions { opacity: 1; }
   .mosaic { grid-template-columns: repeat(4, 1fr); }
-  .nav-trash, .nav-disks { display: none !important; }
+  .nav-trash, .nav-disks, .nav-collections { display: none !important; }
   .ha-fab:not([hidden]) { display: grid; place-items: center; position: fixed; top: calc(10px + env(safe-area-inset-top)); left: 10px;
                           z-index: 25; width: 38px; height: 38px; border: 0; border-radius: 12px; color: #18bcf2;
                           background: var(--panel); backdrop-filter: blur(20px); box-shadow: var(--shadow); }

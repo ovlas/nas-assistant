@@ -13,7 +13,9 @@ partition of the NAS disk's physical disk, and the Home Assistant system disk.
 """
 
 import asyncio
+import json
 import logging
+import time
 import os
 import shutil
 import subprocess
@@ -23,7 +25,7 @@ from typing import Dict, List, Optional
 import aiohttp
 from fastapi import HTTPException
 
-from . import backup, disks
+from . import backup, disks, storage
 
 log = logging.getLogger("uvicorn.error")
 
@@ -37,11 +39,24 @@ ROLES = {
     "storage": ("storage_device", os.environ.get("NAS_STORAGE_DEVICE", ""),
                 os.environ.get("NAS_STORAGE_STATE", "none"), os.environ.get("NAS_STORAGE_FSTYPE", "")),
 }
-BACKUP_DEVICE = ROLES["backup"][1]
-STORAGE_DEVICE = ROLES["storage"][1]
 BACKUP_FSTYPE = ROLES["backup"][3]
 BY_ID = Path(os.environ.get("NAS_BY_ID_DIR", "/dev/disk/by-id"))
 INIT_LABELS = {"backup": "NAS Backup", "storage": "NAS Storage"}
+MOUNTS = {"backup": Path(os.environ.get("NAS_BACKUP_ROOT", "/backup")),
+          "storage": Path(os.environ.get("NAS_STORAGE_ROOT", "/storage"))}
+# Disks ejected safely: their role is remembered so they can be put back with one tap.
+EJECTED_FILE = Path(os.environ.get("NAS_EJECTED_FILE", "/data/ejected.json"))
+
+
+def _ejected() -> Dict[str, dict]:
+    try:
+        return json.loads(EJECTED_FILE.read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def _save_ejected(data: Dict[str, dict]) -> None:
+    EJECTED_FILE.write_text(json.dumps(data))
 
 
 def _by_id() -> Dict[str, str]:
@@ -79,7 +94,8 @@ def overview(include_system: bool = False) -> List[dict]:
         name = dev.get("name", "")
         if dev.get("type") != "disk" or name.startswith(disks.SKIP_NAMES) or "boot" in name:
             continue
-        in_use = (NAS_DEVICE, BACKUP_DEVICE, STORAGE_DEVICE)
+        backup_device, storage_device = ROLES["backup"][1], ROLES["storage"][1]  # current, after an eject too
+        in_use = (NAS_DEVICE, backup_device, storage_device)
         accessible = disks._readable(dev["path"]) if dev["path"] in in_use else None
         nodes = [c for c in dev.get("children") or [] if c.get("type") == "part"] or [dev]
         is_system = disks._is_system_disk(dev, system)
@@ -90,8 +106,8 @@ def overview(include_system: bool = False) -> List[dict]:
             if node["path"] in in_use or os.access(node["path"], os.R_OK):
                 disks._probe(node)
             role = ("system" if is_system else "nas" if node["path"] == NAS_DEVICE
-                    else "backup" if node["path"] == BACKUP_DEVICE
-                    else "storage" if node["path"] == STORAGE_DEVICE else "free")
+                    else "backup" if node["path"] == backup_device
+                    else "storage" if node["path"] == storage_device else "free")
             fstype = node.get("fstype") or (ROLES[role][3] if role in ROLES else "")
             parts.append({
                 "path": node["path"],
@@ -105,6 +121,8 @@ def overview(include_system: bool = False) -> List[dict]:
                          _usage(Path(os.environ.get("NAS_STORAGE_ROOT", "/storage")))
                          if role == "storage" and ROLES["storage"][2] == "mounted" else None,
                 "state": ROLES[role][2] if role in ROLES else "",
+                # Ejected earlier from this role: offer to put it back.
+                "was": _ejected().get(by_id.get(node["path"], ""), {}).get("role", "") if role == "free" else "",
                 # A partition of the NAS disk's physical disk is never offered for backups or initialized.
                 "same_disk_as_nas": bool(nas_disk) and dev["path"] == nas_disk and role != "nas",
             })
@@ -166,7 +184,42 @@ async def set_role(device_id: str, role: Optional[str]) -> None:
     if role:
         options[ROLES[role][0]] = device_id
     await _supervisor("POST", "/addons/self/options", {"options": options})
+    ejected = _ejected()
+    if ejected.pop(device_id, None):
+        _save_ejected(ejected)
     asyncio.get_running_loop().create_task(_restart_soon())
+
+
+async def eject(role: str) -> None:
+    """Safely eject the backup or extra-storage disk: finish writes, unmount, release its role.
+    The role is remembered, to put the disk back in one tap when it is plugged in again.
+    Never the NAS disk: unplugging it would stop the NAS."""
+    if role not in ROLES:
+        raise HTTPException(400, "Unknown role")
+    option, device, state, _ = ROLES[role]
+    if state != "mounted":
+        raise HTTPException(400, "Disk not selectable")
+    if role == "backup" and backup._lock.locked():
+        raise HTTPException(409, "A backup is running: wait for it to finish")
+    subprocess.run(["sync"], capture_output=True)
+    result = subprocess.run(["umount", str(MOUNTS[role])], capture_output=True, text=True)
+    if result.returncode != 0:
+        raise HTTPException(409, "The disk is in use: try again in a moment")
+    device_id = _by_id().get(device, "")
+    info = await _supervisor("GET", "/addons/self/info")
+    options = dict(info.get("options") or {})
+    options.pop(option, None)
+    # Without the option, Home Assistant won't stop the add-on from starting while the disk is unplugged.
+    await _supervisor("POST", "/addons/self/options", {"options": options})
+    ejected = _ejected()
+    ejected[device_id] = {"role": role, "at": int(time.time())}
+    _save_ejected(ejected)
+    # Effective right away, no restart needed.
+    ROLES[role] = (option, "", "none", "")
+    if role == "backup":
+        backup.STATE = "none"
+    else:
+        storage.EXTRA_STATE = "none"
 
 
 def _initialize(role: str, confirm: str) -> None:
