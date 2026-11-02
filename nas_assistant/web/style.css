@@ -26,20 +26,25 @@ i[data-icon] svg { width: 100%; height: 100%; }
            position: sticky; top: 0; height: 100vh; align-self: flex-start; }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 17px; padding: 4px 10px 14px; }
 .brand img { width: 30px; height: 30px; }
-.brand .icon-btn { width: 32px; height: 32px; color: var(--muted); flex: none; }
-.brand .icon-btn i { width: 20px; height: 20px; }
-.brand .collapse-button { margin-left: auto; }
-.ha-button { color: #18bcf2 !important; }
+.ha-pill { display: flex; align-items: center; gap: 10px; margin-top: 12px; padding: 9px 12px; border-radius: 12px;
+           border: 1px solid var(--line); background: var(--panel); box-shadow: var(--shadow); color: var(--text);
+           font: inherit; font-weight: 600; cursor: pointer; text-align: left; }
+.ha-pill:hover { background: var(--hover); }
+.ha-pill i { width: 22px; height: 22px; }
+.collapse-row { display: flex; justify-content: flex-end; padding: 8px 2px 0; }
+.collapse-row .icon-btn { width: 34px; height: 34px; color: var(--muted); }
 .ha-fab { display: none; }
 
 /* Collapsed sidebar: icons only, like Music Assistant (wide screens; phones have the tab bar) */
 @media (min-width: 761px) {
   .sidebar { transition: width .2s; }
   body.nav-collapsed .sidebar { width: 76px; padding-left: 10px; padding-right: 10px; }
-  body.nav-collapsed .brand { flex-direction: column; gap: 10px; padding: 4px 0 14px; }
+  body.nav-collapsed .brand { justify-content: center; padding: 4px 0 14px; }
+  body.nav-collapsed .ha-pill { justify-content: center; padding: 9px 0; }
+  body.nav-collapsed .ha-pill span { display: none; }
+  body.nav-collapsed .collapse-row { justify-content: center; }
   body.nav-collapsed .brand span, body.nav-collapsed .nav-group, body.nav-collapsed .nav-item .l,
   body.nav-collapsed .disk-card, body.nav-collapsed .user span { display: none; }
-  body.nav-collapsed .brand .collapse-button { margin-left: 0; order: 3; }
   body.nav-collapsed .nav-item { justify-content: center; padding: 10px 0; }
   body.nav-collapsed .nav-group + .nav-item { margin-top: 14px; }
   body.nav-collapsed .user { justify-content: center; padding: 0; }
@@ -369,7 +374,7 @@ dialog input { width: 100%; padding: 9px 10px; border-radius: 9px; border: 1px s
   .sidebar { position: fixed; left: 0; right: 0; bottom: 0; top: auto; z-index: 15; width: auto; height: auto;
              padding: 6px 4px calc(6px + env(safe-area-inset-bottom)); border-right: 0; border-top: 1px solid var(--line);
              background: var(--sidebar); backdrop-filter: saturate(180%) blur(20px); }
-  .brand, .nav-group, .side-footer { display: none; }
+  .brand, .nav-group, .side-footer, .ha-pill, .collapse-row { display: none !important; }
   nav#nav { flex-direction: row; justify-content: space-around; gap: 0; }
   .nav-item { flex: 1; flex-direction: column; gap: 2px; padding: 4px 2px; font-size: 10px; font-weight: 500;
               color: var(--muted); text-align: center; background: none !important; }

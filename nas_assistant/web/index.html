@@ -9,11 +9,7 @@
 </head>
 <body>
   <aside class="sidebar">
-    <div class="brand">
-      <button class="icon-btn ha-button" id="ha-menu" data-i18n-title="haMenu" hidden><i data-icon="homeAssistant"></i></button>
-      <img src="logo.svg?v={{version}}" alt=""><span>NAS Assistant</span>
-      <button class="icon-btn collapse-button" id="collapse" data-i18n-title="collapse"><i data-icon="sidebar"></i></button>
-    </div>
+    <div class="brand"><img src="logo.svg?v={{version}}" alt=""><span>NAS Assistant</span></div>
     <nav id="nav">
       <button class="nav-item nav-home" data-space="personal" data-view="home"><i data-icon="home"></i><span class="l" data-i18n="home"></span><span class="s" data-i18n="home"></span></button>
       <div class="nav-group" data-i18n="mySpace"></div>
@@ -26,6 +22,9 @@
       <div class="nav-group nav-admin" data-i18n="system" hidden></div>
       <button class="nav-item nav-admin nav-disks" data-space="personal" data-view="disks" hidden><i data-icon="disk"></i><span class="l" data-i18n="disksTitle"></span><span class="s" data-i18n="disksTitle"></span></button>
     </nav>
+    <!-- Like Music Assistant: the way back to Home Assistant, and the collapse toggle under it -->
+    <button class="ha-pill" id="ha-menu" data-i18n-title="haMenu" hidden><i data-icon="haLogo"></i><span>Home Assistant</span></button>
+    <div class="collapse-row"><button class="icon-btn" id="collapse" data-i18n-title="collapse"><i data-icon="sidebar"></i></button></div>
     <div class="side-footer">
       <div class="disk-card">
         <div class="disk-row"><i data-icon="disk"></i><span id="disk-label" data-i18n="diskLoading"></span></div>
@@ -35,7 +34,7 @@
     </div>
   </aside>
 
-  <button class="ha-fab" id="ha-menu-fab" data-i18n-title="haMenu" hidden><i data-icon="homeAssistant"></i></button>
+  <button class="ha-fab" id="ha-menu-fab" data-i18n-title="haMenu" hidden><i data-icon="haLogo"></i></button>
   <main id="main">
     <header class="topbar" id="topbar">
       <div class="titles">
