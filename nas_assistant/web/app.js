@@ -390,7 +390,7 @@ function fileRow(entry) {
     row.append(
       thumb,
       name,
-      el("div", "meta", shortFmt.format(entry.modified * 1000)),
+      el("div", "meta", entry.modified ? shortFmt.format(entry.modified * 1000) : "—"),
       el("div", "meta", entry.is_dir ? "—" : formatSize(entry.size)),
       actions,
     );

@@ -27,7 +27,7 @@ import re
 import shutil
 import time
 from pathlib import Path
-from typing import BinaryIO, List, Tuple
+from typing import BinaryIO, Dict, List, Tuple
 
 from fastapi import HTTPException
 
@@ -64,10 +64,23 @@ def _has_files(root: Path) -> bool:
     return visible(root / "family") or (users.is_dir() and any(visible(u) for u in users.iterdir() if u.is_dir()))
 
 
+_data_roots: Dict[tuple, tuple] = {}
+
+
 def data_root(mount: Path, fresh: Path) -> Path:
     """Where NAS Assistant's folders are on a disk; `fresh` for a disk never used yet.
     A former NAS disk keeps them at its root; an extra disk in "NAS Assistant/". If both
-    exist (e.g. empty folders made by an older version), the one holding files wins."""
+    exist (e.g. empty folders made by an older version), the one holding files wins.
+    Remembered for a few seconds: every request asks, and a USB disk answers slowly."""
+    cached = _data_roots.get((mount, fresh))
+    if cached and time.monotonic() - cached[0] < 30:
+        return cached[1]
+    root = _find_data_root(mount, fresh)
+    _data_roots[(mount, fresh)] = (time.monotonic(), root)
+    return root
+
+
+def _find_data_root(mount: Path, fresh: Path) -> Path:
     sub = mount / DATA_FOLDER
     if _has_folders(sub) and _has_folders(mount):
         return mount if _has_files(mount) and not _has_files(sub) else sub
@@ -168,12 +181,60 @@ def to_rel(user: User, space: str, full: Path) -> str:
     raise HTTPException(400, "Invalid path")
 
 
-def _walk(user: User, space: str):
-    """os.walk over every disk of a space, skipping hidden folders: yields (folder, files)."""
+# Folder contents remembered by the folder's own date: adding, renaming or deleting a file
+# changes it, so a folder is read again only when something in it changed. Walking a big
+# disk (tens of thousands of files, maybe on USB 2) then costs one check per folder.
+_dir_cache: Dict[str, tuple] = {}
+
+
+def _listing(folder: str) -> list:
+    """(name, is_dir, size, mtime_ns) of a folder's visible entries."""
+    try:
+        mtime = os.stat(folder).st_mtime_ns
+    except OSError:
+        return []
+    cached = _dir_cache.get(folder)
+    if cached and cached[0] == mtime:
+        return cached[1]
+    items = []
+    try:
+        with os.scandir(folder) as found:
+            for entry in found:
+                if entry.name.startswith("."):
+                    continue
+                try:
+                    is_dir = entry.is_dir(follow_symlinks=False)
+                    stat = entry.stat()
+                except OSError:
+                    continue
+                items.append((entry.name, is_dir, 0 if is_dir else stat.st_size, stat.st_mtime_ns))
+    except OSError:
+        return []
+    _dir_cache[folder] = (mtime, items)
+    return items
+
+
+def _files(user: User, space: str):
+    """Every file of a space on every disk: yields (folder, name, size, mtime_ns, rel path)."""
     for _, root in roots(user, space):
-        for folder, dirs, files in os.walk(root):
-            dirs[:] = [d for d in dirs if not d.startswith(".")]
-            yield Path(folder), files
+        stack = [(str(root), "")]
+        while stack:
+            folder, rel = stack.pop()
+            for name, is_dir, size, mtime in _listing(folder):
+                if is_dir:
+                    stack.append((os.path.join(folder, name), f"{rel}/{name}" if rel else name))
+                else:
+                    yield folder, name, size, mtime, f"{rel}/{name}" if rel else name
+
+
+def warm() -> None:
+    """Read every folder once in the background, so the first pages open fast."""
+    for root in disk_roots():
+        for top in ("users", "family"):
+            stack = [str(root / top)]
+            while stack:
+                folder = stack.pop()
+                stack += [os.path.join(folder, n) for n, is_dir, _, _ in _listing(folder) if is_dir]
 
 
 def _clean_rel(path: str) -> str:
@@ -219,25 +280,18 @@ def list_dir(user: User, space: str, rel_path: str) -> List[dict]:
 
 def recent_files(user: User, space: str, limit: int, skip_kinds=()) -> List[dict]:
     """The most recently changed files of a space, newest first."""
-    found = []
-    for folder, files in _walk(user, space):
-        for name in files:
-            kind = kind_of(name)
-            if name.startswith(".") or kind in skip_kinds:
-                continue
-            full = folder / name
-            stat = full.stat()
-            found.append((stat.st_mtime_ns, full, stat, kind))
+    found = ((mtime, rel, name, size) for _, name, size, mtime, rel in _files(user, space)
+             if kind_of(name) not in skip_kinds)
     entries = []
-    for _, full, stat, kind in heapq.nlargest(limit, found, key=lambda f: f[0]):
+    for mtime, rel, name, size in heapq.nlargest(limit, found, key=lambda f: f[0]):
         entries.append({
-            "name": full.name,
-            "path": to_rel(user, space, full),
+            "name": name,
+            "path": rel,
             "is_dir": False,
-            "size": stat.st_size,
-            "modified": int(stat.st_mtime),
-            "v": stat.st_mtime_ns,
-            "kind": kind,
+            "size": size,
+            "modified": mtime // 10**9,
+            "v": mtime,
+            "kind": kind_of(name),
         })
     return entries
 
@@ -251,21 +305,18 @@ def files_by_kind(user: User, space: str, kind: str) -> List[dict]:
     if kind not in KINDS and kind != "other":
         raise HTTPException(400, "Unknown type")
     found = []
-    for folder, files in _walk(user, space):
-        for name in files:
-            if name.startswith(".") or kind_of(name) != kind:
-                continue
-            full = folder / name
-            stat = full.stat()
-            found.append({
-                "name": name,
-                "path": to_rel(user, space, full),
-                "is_dir": False,
-                "size": stat.st_size,
-                "modified": int(stat.st_mtime),
-                "v": stat.st_mtime_ns,
-                "kind": kind,
-            })
+    for _, name, size, mtime, rel in _files(user, space):
+        if kind_of(name) != kind:
+            continue
+        found.append({
+            "name": name,
+            "path": rel,
+            "is_dir": False,
+            "size": size,
+            "modified": mtime // 10**9,
+            "v": mtime,
+            "kind": kind,
+        })
     found.sort(key=lambda e: e["modified"], reverse=True)
     return found
 

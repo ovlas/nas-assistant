@@ -97,11 +97,14 @@ def _nas_files(mount: Path) -> Optional[int]:
         return cached[1]
     count = 0
     for top in ("users", "family"):
-        for _, dirs, files in os.walk(root / top):
-            dirs[:] = [d for d in dirs if not d.startswith(".")]
-            count += sum(1 for f in files if not f.startswith("."))
-            if count > 100000:
-                break
+        stack = [str(root / top)]
+        while stack:
+            folder = stack.pop()
+            for name, is_dir, _, _ in storage._listing(folder):
+                if is_dir:
+                    stack.append(os.path.join(folder, name))
+                else:
+                    count += 1
     _counts[str(root)] = (time.time(), count)
     return count
 

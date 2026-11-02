@@ -9,9 +9,10 @@ import io
 import os
 import sqlite3
 import subprocess
+import threading
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from fastapi import HTTPException
 from PIL import Image, ImageOps
@@ -123,42 +124,75 @@ def _taken(path: Path, kind: str, mtime: float) -> int:
     return int(mtime)
 
 
+# Reading when a photo was shot opens the file: for thousands of new photos (a disk
+# that joins the NAS) that is done in the background, and meanwhile the file date is used.
+_pending: Dict[str, tuple] = {}
+_indexer_lock = threading.Lock()
+_indexer: Optional[threading.Thread] = None
+
+
+def _index_pending() -> None:
+    global _indexer
+    while True:
+        with _indexer_lock:
+            if not _pending:
+                _indexer = None
+                return
+            key, (kind, mtime_ns, size) = _pending.popitem()
+        taken = _taken(Path(key), kind, mtime_ns / 1e9)
+        conn = _db()
+        try:
+            conn.execute("INSERT OR REPLACE INTO media VALUES (?, ?, ?, ?, ?)", (key, mtime_ns, size, taken, kind))
+            conn.commit()
+        except sqlite3.Error:
+            pass
+        finally:
+            conn.close()
+
+
+def _index_later(key: str, kind: str, mtime_ns: int, size: int) -> None:
+    global _indexer
+    with _indexer_lock:
+        _pending[key] = (kind, mtime_ns, size)
+        if _indexer is None:
+            _indexer = threading.Thread(target=_index_pending, daemon=True)
+            _indexer.start()
+
+
 def gallery(user: User, space: str) -> List[dict]:
-    items = []
-    seen = set()
     conn = _db()
     try:
-        for folder, files in storage._walk(user, space):
-            for name in files:
-                kind = kind_of(name)
-                if not kind or name.startswith("."):
-                    continue
-                full = folder / name
-                stat = full.stat()
-                key = str(full)
-                seen.add(key)
-                row = conn.execute("SELECT mtime_ns, size, taken FROM media WHERE path = ?", (key,)).fetchone()
-                if row and row[0] == stat.st_mtime_ns and row[1] == stat.st_size:
-                    taken = row[2]
-                else:
-                    taken = _taken(full, kind, stat.st_mtime)
-                    conn.execute("INSERT OR REPLACE INTO media VALUES (?, ?, ?, ?, ?)",
-                                 (key, stat.st_mtime_ns, stat.st_size, taken, kind))
-                items.append({
-                    "path": storage.to_rel(user, space, full),
-                    "name": name,
-                    "kind": kind,
-                    "taken": taken,
-                    "size": stat.st_size,
-                    "v": stat.st_mtime_ns,
-                })
+        prefixes = tuple(str(root) + os.sep for _, root in storage.roots(user, space))
+        known = {path: (mtime, size, taken) for path, mtime, size, taken in
+                 conn.execute("SELECT path, mtime_ns, size, taken FROM media").fetchall()
+                 if path.startswith(prefixes)}
+        items = []
+        seen = set()
+        for folder, name, size, mtime_ns, rel in storage._files(user, space):
+            kind = kind_of(name)
+            if not kind:
+                continue
+            key = os.path.join(folder, name)
+            seen.add(key)
+            row = known.get(key)
+            if row and row[0] == mtime_ns and row[1] == size:
+                taken = row[2]
+            else:
+                taken = mtime_ns // 10**9  # until the background reads the real date
+                _index_later(key, kind, mtime_ns, size)
+            items.append({
+                "path": rel,
+                "name": name,
+                "kind": kind,
+                "taken": taken,
+                "size": size,
+                "v": mtime_ns,
+            })
         # Forget files that were deleted or moved.
-        for _, root in storage.roots(user, space):
-            prefix = str(root) + os.sep
-            for (path,) in conn.execute("SELECT path FROM media WHERE path LIKE ?", (prefix + "%",)).fetchall():
-                if path not in seen:
-                    conn.execute("DELETE FROM media WHERE path = ?", (path,))
-        conn.commit()
+        gone = [(path,) for path in known if path not in seen]
+        if gone:
+            conn.executemany("DELETE FROM media WHERE path = ?", gone)
+            conn.commit()
     finally:
         conn.close()
     items.sort(key=lambda i: i["taken"], reverse=True)

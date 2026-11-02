@@ -23,7 +23,7 @@ import segno
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
-app = FastAPI(title="NAS Assistant", version="0.19.0")
+app = FastAPI(title="NAS Assistant", version="0.19.1")
 
 # Small boards: decode at most two big images at once. Waiting requests queue
 # here, outside the worker threads, so uploads and browsing never stall behind them.
@@ -33,6 +33,12 @@ _thumb_slots = asyncio.Semaphore(2)
 @app.on_event("startup")
 async def start_backup_scheduler():
     asyncio.get_running_loop().create_task(backup.scheduler())
+
+
+@app.on_event("startup")
+async def warm_folders():
+    # Big disks: read every folder once now, so the first pages don't wait for it.
+    asyncio.get_running_loop().run_in_executor(None, storage.warm)
 
 
 @app.on_event("startup")
