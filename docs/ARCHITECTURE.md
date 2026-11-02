@@ -34,7 +34,7 @@
 ```
 
 - **Add-on** (this repository): backend and web UI.
-- **Mobile app** (separate repository): **Flutter**, one codebase for the App Store and Play Store.
+- **Mobile app** ([ovlas/nas-assistant-app](https://github.com/ovlas/nas-assistant-app)): **Flutter**, one codebase for the App Store and Play Store.
   Immich made the same choice and showed that background photo backup works well this way.
 - **HA integration** (later): sensors and events (`nas_assistant_file_uploaded`, …).
 

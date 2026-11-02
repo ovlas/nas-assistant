@@ -20,7 +20,7 @@ plus a folder shared with the whole family, on a dedicated disk of your choice.
 - ⏯️ Resumable uploads that survive dropped connections and large videos
 - 🌍 Speaks your language: follows your Home Assistant profile (English, Italiano, Español, Français, Deutsch)
 - 📲 Background uploads from the iPhone with an iOS Shortcut (Share menu or nightly automation)
-- 📱 iOS and Android apps with automatic photo backup (coming soon)
+- 📱 [iPhone and Android app](https://github.com/ovlas/nas-assistant-app) with automatic camera-roll backup, paired with a one-time QR code (early version, not in the stores yet)
 - 🏠 Everything stays local
 
 ## Installation
