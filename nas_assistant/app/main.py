@@ -23,7 +23,7 @@ import segno
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
-app = FastAPI(title="NAS Assistant", version="0.18.0")
+app = FastAPI(title="NAS Assistant", version="0.18.1")
 
 # Small boards: decode at most two big images at once. Waiting requests queue
 # here, outside the worker threads, so uploads and browsing never stall behind them.
@@ -305,7 +305,7 @@ async def _fields(request: Request, *names: str, optional: tuple = ()) -> list:
 def disks_overview(user: User = Depends(admin_user)):
     return {"disks": diskadmin.overview(), "nas": disks.state(),
             "roles": {role: {"state": state, "fstype": fstype} for role, (_, _, state, fstype) in diskadmin.ROLES.items()},
-            "storage_name": storage.EXTRA_NAME}
+            "storage_name": storage.EXTRA_NAME, "away": plugplay.away()}
 
 
 @app.post("/api/disks/role")

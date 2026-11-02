@@ -23,7 +23,7 @@ import subprocess
 import json
 import time
 from pathlib import Path
-from typing import Dict, Set
+from typing import Dict, List, Set
 
 import aiohttp
 
@@ -49,6 +49,11 @@ TEXTS = {
              "es": "El disco {name} se desconectó sin expulsarlo. Vuelve a conectarlo y NAS Assistant lo retoma solo.",
              "fr": "Le disque {name} a été débranché sans être éjecté. Rebranchez-le et NAS Assistant le reprend tout seul.",
              "de": "Die Festplatte {name} wurde ohne Auswerfen abgezogen. Schließe sie wieder an, NAS Assistant übernimmt sie selbst."},
+    "back": {"en": "The disk {name} is connected again: its files are available again.",
+             "it": "Il disco {name} è di nuovo collegato: i suoi file sono di nuovo disponibili.",
+             "es": "El disco {name} vuelve a estar conectado: sus archivos están disponibles de nuevo.",
+             "fr": "Le disque {name} est de nouveau branché : ses fichiers sont de nouveau disponibles.",
+             "de": "Die Festplatte {name} ist wieder angeschlossen: ihre Dateien sind wieder verfügbar."},
 }
 
 
@@ -67,7 +72,8 @@ def _base(device_id: str) -> str:
 def _label(device_id: str) -> str:
     """A readable disk name from its by-id name, e.g. usb-WD_Elements_2621_... -> WD Elements 2621."""
     name = os.path.basename(_base(device_id)).split("-", 1)[-1]
-    name = re.sub(r"_[0-9A-Fa-f]{8,}.*$", "", name)  # drop the serial number
+    name = re.sub(r"(-\d+:\d+)$", "", name)
+    name = re.sub(r"_(?=[A-Za-z0-9]*\d)[A-Za-z0-9]{8,}$", "", name)  # drop the serial number
     return name.replace("_", " ").strip() or os.path.basename(device_id)
 
 
@@ -154,6 +160,7 @@ async def _plugged(added: Set[str]) -> None:
         role = _comeback_role(entry["role"])
         if not role:
             continue  # its place is taken: never replace a disk in use
+        await _notify("back", device_id)
         if role == "nas":
             log.info("The NAS disk is back (%s): taking it back", device_id)
             info = await diskadmin._supervisor("GET", "/addons/self/info")
@@ -194,9 +201,12 @@ def remember_current() -> None:
     for role, (_, device, state, _) in diskadmin.ROLES.items():
         if device and state == "mounted":
             in_use[device] = role
-    for link, real in ((str(p), os.path.realpath(p)) for p in diskadmin.BY_ID.glob("*") if diskadmin.BY_ID.is_dir()):
+    links = [(str(p), os.path.realpath(p)) for p in diskadmin.BY_ID.glob("*")] if diskadmin.BY_ID.is_dir() else []
+    for link, real in links:
         if real in in_use:
-            known[link] = {"role": in_use[real], "at": int(time.time())}
+            # All the names of one disk share a group, so an unplugged disk is listed once.
+            group = min(_base(other) for other, r in links if r == real)
+            known[link] = {"role": in_use[real], "at": int(time.time()), "group": group}
     try:
         KNOWN_FILE.write_text(json.dumps(known))
     except OSError:
@@ -211,6 +221,28 @@ def _comeback_role(role: str) -> str:
             return "nas"
         return "storage" if diskadmin.ROLES["storage"][2] in ("none", "missing") else ""
     return role if diskadmin.ROLES[role][2] in ("none", "missing") else ""
+
+
+def away() -> List[dict]:
+    """Disks that had a role here and are not plugged in now: the Disks page keeps showing them,
+    so nobody wonders where their files went."""
+    present = _ids()
+    groups: Dict[str, dict] = {}
+    known = _known()
+    for device_id, entry in {**known, **diskadmin._ejected()}.items():
+        group = entry.get("group") or known.get(device_id, {}).get("group") or _base(device_id)
+        current = groups.setdefault(group, {"ids": set(), "role": entry["role"], "at": 0})
+        current["ids"].add(device_id)
+        if entry.get("at", 0) >= current["at"]:
+            current["role"], current["at"] = entry["role"], entry.get("at", 0)
+    result = []
+    for group, entry in groups.items():
+        if entry["ids"] & present or any(_base(i) in {_base(p) for p in present} for i in entry["ids"]):
+            continue
+        # The ata- name carries the disk model; a USB enclosure's name often doesn't.
+        name_id = sorted(entry["ids"], key=lambda i: not os.path.basename(i).startswith("ata-"))[0]
+        result.append({"id": group, "name": _label(name_id), "role": entry["role"], "at": entry["at"]})
+    return sorted(result, key=lambda d: -d["at"])
 
 
 def forget_new(device_id: str) -> None:

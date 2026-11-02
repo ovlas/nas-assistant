@@ -138,9 +138,21 @@ def overview(include_system: bool = False) -> List[dict]:
             "transport": (dev.get("tran") or "").upper(),
             "system": is_system,
             "accessible": accessible,
+            "usb_speed": _usb_speed(name),
             "partitions": parts,
         })
     return result
+
+
+def _usb_speed(name: str) -> int:
+    """Link speed in Mbit/s of a USB disk (480 = USB 2, 5000+ = USB 3), 0 if not USB or unknown."""
+    path = Path(os.path.realpath(f"/sys/block/{name}"))
+    for parent in path.parents:
+        try:
+            return int((parent / "speed").read_text().strip())
+        except (OSError, ValueError):
+            continue
+    return 0
 
 
 async def _supervisor(method: str, path: str, body: Optional[dict] = None) -> dict:

@@ -57,6 +57,9 @@ NAS Assistant watches disks being plugged in and out:
 - **A disk it already knows comes back** (the backup or extra-storage disk, or the NAS disk): it takes its role back
   on its own. NAS Assistant restarts for a few seconds, which Home Assistant needs to grant access to a disk.
   An old NAS disk plugged in while another NAS disk is working joins it as extra storage, so its files show again.
+  A Home Assistant notification says it is back. While it is unplugged, the Disks page keeps listing it as
+  **Not connected**, so its files are never "lost": plugging it in is all there is to do.
+- A disk connected at USB 2 speed works normally; the Disks page only mentions that a faster port exists.
 - **A disk in use is unplugged without Eject**: it is unmounted and its role remembered for when it comes back. For
   the NAS disk the NAS pauses. Unplugging while files are being written can damage them: use **Eject** when you can.
 - **A new disk is plugged in**: nothing is decided for you. A Home Assistant notification and a banner in NAS Assistant

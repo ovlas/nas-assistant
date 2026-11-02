@@ -333,7 +333,7 @@ dialog input { width: 100%; padding: 9px 10px; border-radius: 9px; border: 1px s
 
 /* --- Disks page ---------------------------------------------------------- */
 .disks { display: flex; flex-direction: column; gap: 18px; max-width: 900px; }
-.disk-card-big.system { opacity: .7; }
+.disk-card-big.system, .disk-card-big.away { opacity: .7; }
 .disk-card-big .card-head { flex-wrap: wrap; }
 .eject-btn { margin-left: auto; }
 #disk-list > .btn { align-self: flex-start; }

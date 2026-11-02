@@ -1030,7 +1030,28 @@ async function renderDisks() {
   const page = $("disks");
   const taken = (role) => info.disks.some((d) => d.partitions.some((p) => p.role === role));
   for (const disk of info.disks) page.append(diskCard(disk, info, { backup: taken("backup"), storage: taken("storage") }));
+  for (const disk of info.away || []) page.append(awayCard(disk));
   page.append(el("p", "notice hint", t("diskNotListed")));
+}
+
+// A disk that had a role and is unplugged: it stays listed, and comes back by itself.
+function awayCard(disk) {
+  const node = el("section", "card disk-card-big away");
+  const head = el("header", "card-head");
+  const appIcon = el("div", "app-icon");
+  appIcon.style.background = APP_COLORS.trash;
+  appIcon.append(iconEl("disk"));
+  const titles = el("div", "card-titles");
+  titles.append(el("h2", "", disk.name), el("div", "card-sub", t("notConnected")));
+  head.append(appIcon, titles);
+  const body = el("div", "card-body");
+  const row = el("div", "part");
+  const top = el("div", "part-top");
+  top.append(el("span", `role role-${disk.role}`, t(ROLE_LABELS[disk.role])));
+  row.append(top, el("div", "card-sub", t("awayText")));
+  body.append(row);
+  node.append(head, body);
+  return node;
 }
 
 const setRole = (id, role) => post("api/disks/role", { id, role });
@@ -1045,6 +1066,8 @@ function diskCard(disk, info, taken) {
   titles.append(el("h2", "", disk.model),
     el("div", "card-sub", [formatSize(disk.size), disk.transport, disk.path].filter(Boolean).join(" · ")));
   head.append(appIcon, titles);
+  // A USB 2 link works, just slower: say so gently, once.
+  if (disk.usb_speed && disk.usb_speed <= 480) titles.append(el("div", "card-sub", t("slowUsb")));
   // Eject sits next to the disk's name, so it is clear which disk gets unplugged.
   const used = disk.partitions.find((p) => ["nas", "backup", "storage"].includes(p.role) && p.state === "mounted");
   if (used) {
