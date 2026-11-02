@@ -50,6 +50,18 @@ what each one is used for and how full it is. A free disk can be given a role, a
   initialized or given a role.
 - A disk that doesn't appear is not visible to Home Assistant itself: check its power supply, cable and USB port.
 
+## Other files on the disk
+
+A disk often holds more than NAS Assistant's folders: music, old photos, documents copied there over the years.
+Administrators find them in **Other files on the disk** (sidebar, under System), for the NAS disk and the
+extra-storage disk, also from outside home:
+
+- Browse folders, preview photos and videos, open and download files.
+- **Copy to…** puts a file or a whole folder into *My space* or *Family*, where it gets the usual privacy, the
+  gallery and the nightly backup. Big folders copy in the background; a message says when it's done.
+- It is **read only**: nothing on the disk is renamed, moved or deleted from here. NAS Assistant's own folders and
+  system folders (`$RECYCLE.BIN`, `System Volume Information`, `.Trashes`, …) are not shown.
+
 ## Plug and play
 
 NAS Assistant watches disks being plugged in and out:

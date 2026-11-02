@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from urllib.parse import urlencode
 
-from . import albums, backup, devices, diskadmin, disks, favorites, media, plugplay, storage
+from . import albums, backup, devices, diskadmin, disks, favorites, media, plugplay, rawdisk, storage
 from .auth import User, admin_user, avatar, current_user
 from .kinds import media_kind
 
@@ -23,7 +23,7 @@ import segno
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
-app = FastAPI(title="NAS Assistant", version="0.18.3")
+app = FastAPI(title="NAS Assistant", version="0.19.0")
 
 # Small boards: decode at most two big images at once. Waiting requests queue
 # here, outside the worker threads, so uploads and browsing never stall behind them.
@@ -308,6 +308,24 @@ def disks_overview(user: User = Depends(admin_user)):
             "storage_name": storage.EXTRA_NAME, "away": plugplay.away()}
 
 
+@app.get("/api/disk/roots")
+def disk_roots(user: User = Depends(admin_user)):
+    """The disks whose other files can be browsed."""
+    return {"disks": [{"space": rawdisk.PREFIX + key, "role": key} for key in rawdisk.mounts()]}
+
+
+@app.post("/api/disk/copy")
+async def disk_copy(request: Request, user: User = Depends(admin_user)):
+    """Copy a file or folder of the disk into My space or Family (in the background)."""
+    space, path, to_space, to_path = await _fields(request, "space", "path", "to_space", "to_path", optional=("to_path",))
+    return await run_in_threadpool(rawdisk.start_copy, user, space, path, to_space, to_path)
+
+
+@app.get("/api/disk/jobs")
+def disk_jobs(user: User = Depends(admin_user)):
+    return {"jobs": rawdisk.user_jobs(user)}
+
+
 @app.post("/api/disks/role")
 async def set_disk_role(request: Request, user: User = Depends(admin_user)):
     """role: backup, storage or none. The add-on restarts to apply it; nothing is erased."""
@@ -362,8 +380,20 @@ async def format_disk(request: Request, user: User = Depends(admin_user)):
     return {"ok": True}
 
 
+def _source(user: User, space: str, path: str):
+    """A file of a space, or (administrators) of "Other files on the disk"."""
+    if space.startswith(rawdisk.PREFIX):
+        if not user.is_admin:
+            raise HTTPException(403, "Only administrators can do this")
+        return rawdisk.resolve(space, path)
+    return storage.resolve(user, space, path)
+
+
 @app.get("/api/files")
 async def list_files(space: str = "personal", path: str = "", user: User = Depends(current_user)):
+    if space.startswith(rawdisk.PREFIX):
+        _source(user, space, "")
+        return {"space": space, "path": path, "entries": await run_in_threadpool(rawdisk.list_dir, space, path)}
     entries = storage.list_dir(user, space, path)
     favs = favorites.paths(user, space)
     for entry in entries:
@@ -490,7 +520,7 @@ def photos(space: str = "personal", user: User = Depends(current_user)):
 
 @app.get("/api/thumb")
 async def thumb(space: str, path: str, size: str = "s", user: User = Depends(current_user)):
-    src = storage.resolve(user, space, path)
+    src = _source(user, space, path)
     out = media.thumb_path(src, size)
     if not out.exists():
         async with _thumb_slots:
@@ -582,7 +612,7 @@ def delete_forever(id: str = "", all: bool = False, user: User = Depends(current
 
 @app.get("/api/download")
 async def download(space: str, path: str, inline: bool = False, user: User = Depends(current_user)):
-    target = storage.resolve(user, space, path)
+    target = _source(user, space, path)
     if not target.is_file():
         raise HTTPException(404, "File not found")
     # Supports HTTP Range requests, which Safari/iOS need to play videos.

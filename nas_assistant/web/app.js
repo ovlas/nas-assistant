@@ -81,6 +81,8 @@ const IMAGE = /\.(jpe?g|png|gif|webp|heic|heif|bmp|tiff?)$/i;
 const VIDEO = /\.(mp4|mov|m4v|webm|mkv|avi|3gp)$/i;
 const kindOf = (name) => (IMAGE.test(name) ? "image" : VIDEO.test(name) ? "video" : null);
 
+// "Other files on the disk": space "disk" lists the disks, "disk:nas" / "disk:storage" browse one (read only).
+const isDisk = (space) => typeof space === "string" && space.startsWith("disk");
 const thumbUrl = (path, v, size = "s", space = state.space) => `api/thumb?${qs({ space, path, size, v })}`;
 const fileUrl = (path, inline = false, space = state.space) =>
   `api/download?${qs({ space, path, ...(inline ? { inline: 1 } : {}) })}`;
@@ -124,7 +126,8 @@ function go(space, view, path = "", kind = "all") {
   closeMenu();
   const navView = view === "collection" ? "collections" : view;
   document.querySelectorAll(".nav-item").forEach((b) =>
-    b.classList.toggle("active", b.dataset.space === (view === "collection" ? "personal" : space) && b.dataset.view === navView));
+    b.classList.toggle("active", b.dataset.space === (view === "collection" ? "personal" : isDisk(space) ? "disk" : space)
+      && b.dataset.view === navView));
   render();
 }
 
@@ -134,7 +137,7 @@ function setHeader(title, subtitle) {
   $("new-folder").hidden = state.view !== "files";
   $("layout-switch").hidden = state.view !== "files";
   document.querySelectorAll("#layout-switch button").forEach((b) => b.classList.toggle("active", b.dataset.layout === state.layout));
-  $("upload-btn").hidden = ["trash", "disks", "collections", "collection"].includes(state.view);
+  $("upload-btn").hidden = ["trash", "disks", "collections", "collection"].includes(state.view) || isDisk(state.space);
   $("empty-trash").hidden = true;
 }
 
@@ -244,6 +247,7 @@ function tile(item, index) {
 // --- Files --------------------------------------------------------------------
 
 async function renderFiles() {
+  if (isDisk(state.space)) return renderDiskFiles();
   const root = t(state.space === "personal" ? "files" : "sharedFiles");
   setHeader(root, t(state.space === "personal" ? "mySpace" : "family"));
   renderChips();
@@ -277,6 +281,37 @@ async function renderFiles() {
   for (const entry of entries) list.append(fileRow(entry));
 }
 
+const DISK_NAMES = { nas: "roleNas", storage: "roleStorage" };
+const diskName = (space) => t(DISK_NAMES[space.slice(5)] || "diskFiles");
+
+async function renderDiskFiles() {
+  setHeader(t("diskFiles"), state.space === "disk" ? t("diskFilesSub") : diskName(state.space));
+  $("new-folder").hidden = true;
+  const seq = renderSeq;
+  let entries;
+  try {
+    if (state.space === "disk") {
+      const { disks: found } = await api("api/disk/roots");
+      if (stale(seq)) return;
+      if (found.length === 1) return go(found[0].space, "files");
+      entries = found.map((d) => ({ name: t(DISK_NAMES[d.role]), is_dir: true, volume: true, open: d.space, modified: 0, size: 0 }));
+    } else {
+      ({ entries } = await api(`api/files?${qs({ space: state.space, path: state.path })}`));
+    }
+  } catch (err) {
+    return stale(seq) || showEmpty(t("folderOpenError"), err.message);
+  }
+  if (stale(seq)) return;
+  if (state.space !== "disk") renderCrumbs(diskName(state.space));
+  for (const e of entries) e.path = e.path || join(state.path, e.name);
+  state.items = entries.filter((e) => !e.is_dir && kindOf(e.name))
+    .map((e) => ({ path: e.path, name: e.name, kind: kindOf(e.name), taken: e.modified, v: e.v }));
+  if (!entries.length) return showEmpty(t(state.space === "disk" ? "noDiskFilesTitle" : "emptyFolderTitle"), t(state.space === "disk" ? "noDiskFilesText" : "diskFilesEmpty"));
+  const list = $("files");
+  list.className = `file-list layout-${state.layout}`;
+  for (const entry of entries) list.append(fileRow(entry));
+}
+
 function renderChips(filters = KIND_FILTERS) {
   const chips = $("chips");
   for (const kind of filters) {
@@ -302,7 +337,7 @@ function renderCrumbs(root) {
     if (i) crumbs.append(iconEl("right"));
     const a = el("a", "", label);
     a.onclick = () => go(state.space, "files", parts.slice(0, i).join("/"));
-    if (i < parts.length) dropTarget(a, parts.slice(0, i).join("/"));
+    if (i < parts.length && !isDisk(state.space)) dropTarget(a, parts.slice(0, i).join("/"));
     crumbs.append(a);
   });
   crumbs.querySelectorAll("i").forEach((i) => { i.style.width = i.style.height = "14px"; });
@@ -363,13 +398,17 @@ function fileRow(entry) {
     row.append(thumb, name, actions);
   }
 
-  // Drag a row onto a folder (or a breadcrumb) to move it.
-  row.draggable = true;
+  if (entry.open) {
+    row.onclick = () => go(entry.open, "files");
+    return row;
+  }
+  // Drag a row onto a folder (or a breadcrumb) to move it. The disk's own files stay put.
+  row.draggable = !isDisk(state.space);
   row.ondragstart = (e) => {
     e.dataTransfer.setData(DRAG_TYPE, JSON.stringify({ space: state.space, path }));
     e.dataTransfer.effectAllowed = "move";
   };
-  if (entry.is_dir) dropTarget(row, path);
+  if (entry.is_dir && !isDisk(state.space)) dropTarget(row, path);
   row.onclick = () => {
     if (entry.is_dir) return go(state.space, "files", path);
     if (kind) return openViewer(state.items.findIndex((i) => i.path === path));
@@ -1421,6 +1460,12 @@ function openMenu(entry, rect) {
     b.onclick = () => { closeMenu(); action(); };
     menu.append(b);
   };
+  if (isDisk(state.space)) {
+    // Other files on the disk: read only, they can be copied into a space.
+    item("move", t("copyTo"), () => openCopyDialog(entry));
+    if (!entry.is_dir) item("download", t("download"), () => { location.href = fileUrl(entry.path); });
+    return placeMenu(menu, rect);
+  }
   if (state.view === "collection") {
     // Inside a collection: the file stays where it is, only the grouping changes.
     const folder = entry.path.includes("/") ? entry.path.slice(0, entry.path.lastIndexOf("/")) : "";
@@ -1460,8 +1505,9 @@ document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeMenu(
 const picker = { space: "personal", path: "", entry: null, from: null };
 
 function openMoveDialog(entry) {
-  Object.assign(picker, { space: state.space, path: state.kind === "all" ? state.path : "", entry, from: state.space });
+  Object.assign(picker, { space: state.space, path: state.kind === "all" ? state.path : "", entry, from: state.space, copy: false });
   $("move-title").textContent = t("moveTitle", { name: entry.name });
+  $("move-ok").textContent = t("moveHere");
   $("move-dialog").showModal();
   renderPicker();
 }
@@ -1505,8 +1551,55 @@ document.querySelectorAll("#move-spaces button").forEach((b) => {
 });
 $("move-ok").onclick = () => {
   $("move-dialog").close();
+  if (picker.copy) return startCopy(picker.from, picker.entry, picker.space, picker.path);
   moveItem(picker.from, picker.entry.path, picker.space, picker.path);
 };
+
+// "Copy to…" for the other files on the disk: pick a folder of My space or Family.
+function openCopyDialog(entry) {
+  Object.assign(picker, { space: "personal", path: "", entry, from: state.space, copy: true });
+  $("move-title").textContent = t("copyTitle", { name: entry.name });
+  $("move-ok").textContent = t("copyHere");
+  $("move-dialog").showModal();
+  renderPicker();
+}
+
+async function startCopy(from, entry, space, path) {
+  try {
+    await post("api/disk/copy", { space: from, path: entry.path, to_space: space, to_path: path });
+  } catch (err) {
+    return alert(err.message);
+  }
+  snack(t("copyStarted", { name: entry.name }));
+  watchCopies();
+}
+
+// Copies run on the NAS: follow them, and say when each one is done.
+let copyWatch = null;
+const copiesSeen = new Set();
+function watchCopies() {
+  if (copyWatch) return;
+  copyWatch = setInterval(async () => {
+    let jobs = [];
+    try { ({ jobs } = await api("api/disk/jobs")); } catch { return; }
+    const running = jobs.filter((j) => j.state === "copying");
+    for (const job of jobs.filter((j) => j.state !== "copying" && !copiesSeen.has(j.id))) {
+      copiesSeen.add(job.id);
+      if (job.state === "error") alert(t("copyFailed", { name: job.name, error: job.error }));
+      else snack(t("copyDone", { name: job.name, where: t(job.space === "personal" ? "mySpace" : "family") }),
+        t("open"), () => go(job.space, "files", job.path));
+      loadStatus();
+    }
+    if (running.length) {
+      const done = running.reduce((n, j) => n + j.done, 0);
+      const total = running.reduce((n, j) => n + j.total, 0) || 1;
+      snack(t("copying", { name: running[0].name, pct: Math.floor((done / total) * 100) }));
+    } else {
+      clearInterval(copyWatch);
+      copyWatch = null;
+    }
+  }, 2000);
+}
 $("move-cancel").onclick = () => $("move-dialog").close();
 
 // --- Viewer -------------------------------------------------------------------
@@ -1556,6 +1649,7 @@ function showViewerItem() {
   $("v-name").textContent = item.name;
   $("v-download").href = fileUrl(item.path, false, item.space || state.space);
   $("v-delete").title = t(state.view === "collection" ? "removeFromCollection" : "moveToTrash");
+  for (const id of ["v-fav", "v-rename", "v-album", "v-delete"]) $(id).hidden = viewerReadOnly();
   paintFavButton(item);
   $("v-prev").hidden = state.viewerIndex === 0;
   $("v-next").hidden = state.viewerIndex === state.items.length - 1;
@@ -1571,6 +1665,8 @@ function step(delta) {
 $("v-close").onclick = closeViewer;
 $("v-prev").onclick = () => step(-1);
 $("v-next").onclick = () => step(1);
+const viewerReadOnly = () => isDisk((state.items[state.viewerIndex] || {}).space || state.space);
+
 function paintFavButton(item) {
   const button = $("v-fav");
   button.replaceChildren(iconEl(item.fav ? "heartFill" : "heart"));
@@ -1579,6 +1675,7 @@ function paintFavButton(item) {
 }
 
 $("v-fav").onclick = async () => {
+  if (viewerReadOnly()) return;
   const item = state.items[state.viewerIndex];
   try {
     await toggleFavorite(item);
@@ -1590,6 +1687,7 @@ $("v-fav").onclick = async () => {
 };
 
 $("v-rename").onclick = () => {
+  if (viewerReadOnly()) return;
   const item = state.items[state.viewerIndex];
   inlineRename($("v-name"), { name: item.name, is_dir: false }, async (name) => {
     const { name: saved } = await post("api/rename", { space: item.space || state.space, path: item.path, name });
@@ -1602,6 +1700,7 @@ $("v-rename").onclick = () => {
 $("v-name").onclick = () => $("v-rename").click();
 $("v-album").onclick = () => addToCollection(state.items[state.viewerIndex]);
 $("v-delete").onclick = async () => {
+  if (viewerReadOnly()) return;
   const item = state.items[state.viewerIndex];
   // In an album the bin icon takes the photo out of the album; the file stays.
   if (state.view === "collection") {
