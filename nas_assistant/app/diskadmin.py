@@ -116,11 +116,11 @@ def overview(include_system: bool = False) -> List[dict]:
                 "fstype": fstype,
                 "label": node.get("label") or "",
                 "role": role,
-                "usage": _usage(disks.NAS_ROOT) if role == "nas" else
+                "usage": _usage(disks.NAS_ROOT) if role == "nas" and disks.state() == "mounted" else
                          _usage(backup.ROOT) if role == "backup" and backup.STATE == "mounted" else
                          _usage(Path(os.environ.get("NAS_STORAGE_ROOT", "/storage")))
                          if role == "storage" and ROLES["storage"][2] == "mounted" else None,
-                "state": ROLES[role][2] if role in ROLES else "",
+                "state": ROLES[role][2] if role in ROLES else disks.state() if role == "nas" else "",
                 # Ejected earlier from this role: offer to put it back.
                 "was": _ejected().get(by_id.get(node["path"], ""), {}).get("role", "") if role == "free" else "",
                 # A partition of the NAS disk's physical disk is never offered for backups or initialized.
@@ -190,10 +190,31 @@ async def set_role(device_id: str, role: Optional[str]) -> None:
     asyncio.get_running_loop().create_task(_restart_soon())
 
 
+def _eject_nas() -> None:
+    """Pause the NAS and unmount its disk so it can be unplugged. The configuration stays:
+    when the disk is back, "Reactivate" restarts the add-on and everything mounts again."""
+    if disks.state() != "mounted":
+        raise HTTPException(400, "Disk not selectable")
+    if backup._lock.locked():
+        raise HTTPException(409, "A backup is running: wait for it to finish")
+    disks.set_state("ejected")  # from now on, file requests answer "NAS disk not available"
+    subprocess.run(["sync"], capture_output=True)
+    if subprocess.run(["umount", str(disks.NAS_ROOT)], capture_output=True).returncode != 0:
+        disks.set_state("mounted")
+        raise HTTPException(409, "The disk is in use: try again in a moment")
+
+
+async def reactivate() -> None:
+    """After the NAS disk is plugged back in: restart, so it mounts again."""
+    asyncio.get_running_loop().create_task(_restart_soon())
+
+
 async def eject(role: str) -> None:
-    """Safely eject the backup or extra-storage disk: finish writes, unmount, release its role.
-    The role is remembered, to put the disk back in one tap when it is plugged in again.
-    Never the NAS disk: unplugging it would stop the NAS."""
+    """Safely eject a disk: finish writes, unmount it. The backup and extra-storage disks also
+    lose their role, remembered to put them back in one tap when plugged in again; the NAS
+    disk pauses the NAS until it is reactivated."""
+    if role == "nas":
+        return await asyncio.get_running_loop().run_in_executor(None, _eject_nas)
     if role not in ROLES:
         raise HTTPException(400, "Unknown role")
     option, device, state, _ = ROLES[role]
@@ -201,16 +222,17 @@ async def eject(role: str) -> None:
         raise HTTPException(400, "Disk not selectable")
     if role == "backup" and backup._lock.locked():
         raise HTTPException(409, "A backup is running: wait for it to finish")
-    subprocess.run(["sync"], capture_output=True)
-    result = subprocess.run(["umount", str(MOUNTS[role])], capture_output=True, text=True)
-    if result.returncode != 0:
-        raise HTTPException(409, "The disk is in use: try again in a moment")
     device_id = _by_id().get(device, "")
     info = await _supervisor("GET", "/addons/self/info")
     options = dict(info.get("options") or {})
-    options.pop(option, None)
-    # Without the option, Home Assistant won't stop the add-on from starting while the disk is unplugged.
-    await _supervisor("POST", "/addons/self/options", {"options": options})
+    released = {k: v for k, v in options.items() if k != option}
+    # Release the role first: without the option, Home Assistant won't stop the add-on from
+    # starting while the disk is unplugged. If unmounting then fails, the role is given back.
+    await _supervisor("POST", "/addons/self/options", {"options": released})
+    subprocess.run(["sync"], capture_output=True)
+    if subprocess.run(["umount", str(MOUNTS[role])], capture_output=True).returncode != 0:
+        await _supervisor("POST", "/addons/self/options", {"options": options})
+        raise HTTPException(409, "The disk is in use: try again in a moment")
     ejected = _ejected()
     ejected[device_id] = {"role": role, "at": int(time.time())}
     _save_ejected(ejected)

@@ -40,8 +40,9 @@ what each one is used for and how full it is. A free disk can be given a role, a
 - **Use as extra storage**: more room for files. It appears as one more folder, named after the disk, at the top of
   *Files* and *Shared files*, with the same per-user privacy. Files can be moved between the two disks; photos on it
   show in the gallery; it is included in the nightly backup.
-- **Eject safely** (backup and extra-storage disks): finishes writes and unmounts the disk so you can unplug it.
-  Plug it back in and **Put back as …** restores its role in one tap. The NAS disk can't be ejected.
+- **Eject safely**, next to each disk's name: finishes writes and unmounts the disk so you can unplug it.
+  For the backup and extra-storage disks, plug it back in and **Put back as …** restores its role in one tap.
+  Ejecting the NAS disk asks twice and pauses the NAS for everyone; plug it back in and press **Reactivate**.
 - **Use … instead** switches a disk between the two roles, **Stop using it** frees it. Changing roles never erases
   anything: NAS Assistant only ever writes inside its own folder on these disks ("NAS Assistant" or
   "NAS Assistant Backup"), then restarts to apply the change. This works with protection mode on.

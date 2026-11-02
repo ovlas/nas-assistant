@@ -23,7 +23,7 @@ import segno
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
-app = FastAPI(title="NAS Assistant", version="0.16.0")
+app = FastAPI(title="NAS Assistant", version="0.16.1")
 
 # Small boards: decode at most two big images at once. Waiting requests queue
 # here, outside the worker threads, so uploads and browsing never stall behind them.
@@ -310,10 +310,17 @@ async def set_disk_role(request: Request, user: User = Depends(admin_user)):
 
 @app.post("/api/disks/eject")
 async def eject_disk(request: Request, user: User = Depends(admin_user)):
-    """Safely eject the backup or extra-storage disk (never the NAS disk)."""
+    """Safely eject a disk: role nas (pauses the NAS), backup or storage."""
     (role,) = await _fields(request, "role")
     await diskadmin.eject(role)
     return {"ok": True}
+
+
+@app.post("/api/disks/reactivate")
+async def reactivate_nas(user: User = Depends(admin_user)):
+    """The NAS disk is plugged back in after an eject: restart to mount it."""
+    await diskadmin.reactivate()
+    return {"ok": True, "restarting": True}
 
 
 @app.post("/api/disks/initialize")

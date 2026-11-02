@@ -35,6 +35,12 @@ def state() -> str:
     return _state
 
 
+def set_state(value: str) -> None:
+    """E.g. "ejected": the NAS disk was unmounted on request; every file request pauses."""
+    global _state
+    _state = value
+
+
 def _run(*cmd: str, stdin: Optional[str] = None) -> str:
     try:
         return subprocess.run(cmd, input=stdin, check=True, capture_output=True, text=True).stdout

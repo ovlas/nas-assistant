@@ -34,6 +34,7 @@ const ICON_PATHS = {
   homeAssistant: '<path fill="currentColor" stroke="none" d="M21.8,13H20V21H13V17.67L15.79,14.88L16.5,15C17.66,15 18.6,14.06 18.6,12.9C18.6,11.74 17.66,10.8 16.5,10.8A2.1,2.1 0 0,0 14.4,12.9L14.5,13.61L13,15.13V9.65C13.66,9.29 14.1,8.6 14.1,7.8A2.1,2.1 0 0,0 12,5.7A2.1,2.1 0 0,0 9.9,7.8C9.9,8.6 10.34,9.29 11,9.65V15.13L9.5,13.61L9.6,12.9A2.1,2.1 0 0,0 7.5,10.8A2.1,2.1 0 0,0 5.4,12.9A2.1,2.1 0 0,0 7.5,15L8.21,14.88L11,17.67V21H4V13H2.25C1.83,13 1.42,13 1.42,12.79C1.43,12.57 1.85,12.15 2.28,11.72L11,3C11.33,2.67 11.67,2.33 12,2.33C12.33,2.33 12.67,2.67 13,3L17,7V6H19V9L21.78,11.78C22.18,12.18 22.59,12.59 22.6,12.8C22.6,13 22.2,13 21.8,13M7.5,12A0.9,0.9 0 0,1 8.4,12.9A0.9,0.9 0 0,1 7.5,13.8A0.9,0.9 0 0,1 6.6,12.9A0.9,0.9 0 0,1 7.5,12M16.5,12C17,12 17.4,12.4 17.4,12.9C17.4,13.4 17,13.8 16.5,13.8A0.9,0.9 0 0,1 15.6,12.9A0.9,0.9 0 0,1 16.5,12M12,6.9C12.5,6.9 12.9,7.3 12.9,7.8C12.9,8.3 12.5,8.7 12,8.7C11.5,8.7 11.1,8.3 11.1,7.8C11.1,7.3 11.5,6.9 12,6.9Z"/>',
   // The current Home Assistant logo: blue house with the white circuit "tree".
   haLogo: '<path d="M12 2.6 21 10.3V20a1.6 1.6 0 0 1-1.6 1.6H4.6A1.6 1.6 0 0 1 3 20v-9.7z" fill="#18BCF2" stroke="#18BCF2" stroke-width="1.6" stroke-linejoin="round"/><g stroke="#fff" stroke-width="1.35" fill="none" stroke-linecap="round"><path d="M12 21.6V10.6M12 17.2 8.9 14.1M12 14.9l3.1-3.1"/></g><g fill="#fff" stroke="none"><circle cx="12" cy="9.4" r="1.45"/><circle cx="8.1" cy="13.3" r="1.3"/><circle cx="15.9" cy="11" r="1.3"/></g>',
+  eject: '<path d="M12 4.5 4.5 13h15z"/><path d="M5 17.5h14"/>',
   album: '<rect x="3" y="7" width="14" height="13" rx="2.5"/><path d="M7 4h11.5A2.5 2.5 0 0 1 21 6.5V16"/><path d="M3.5 17l4-4 3 3 2-2 4 4"/>',
   dossier: '<path d="M3 8a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M8 13h8M8 16.5h5"/>',
   sidebar: '<rect x="3.5" y="4.5" width="17" height="15" rx="3"/><path d="M9.5 4.5v15"/>',
@@ -1044,6 +1045,14 @@ function diskCard(disk, info, taken) {
   titles.append(el("h2", "", disk.model),
     el("div", "card-sub", [formatSize(disk.size), disk.transport, disk.path].filter(Boolean).join(" · ")));
   head.append(appIcon, titles);
+  // Eject sits next to the disk's name, so it is clear which disk gets unplugged.
+  const used = disk.partitions.find((p) => ["nas", "backup", "storage"].includes(p.role) && p.state === "mounted");
+  if (used) {
+    const eject = el("button", "btn eject-btn");
+    eject.append(iconEl("eject"), el("span", "", t("eject")));
+    eject.onclick = () => ejectDisk(disk, used.role);
+    head.append(eject);
+  }
   node.append(head);
 
   const body = el("div", "card-body");
@@ -1079,20 +1088,6 @@ function diskCard(disk, info, taken) {
         swap.onclick = () => diskAction(t("confirmSwitch"), () => setRole(part.id, other));
         actions.append(swap);
       }
-      if (part.state === "mounted") {
-        const eject = el("button", "btn primary", t("eject"));
-        eject.onclick = async () => {
-          if (!confirm(t("confirmEject", { name: disk.model }))) return;
-          try {
-            await post("api/disks/eject", { role: part.role });
-            snack(t("ejected", { name: disk.model }));
-          } catch (err) {
-            alert(err.message);
-          }
-          render();
-        };
-        actions.append(eject);
-      }
       const stop = el("button", "btn", t("stopUsing"));
       stop.onclick = () => diskAction(t(part.role === "backup" ? "confirmStopBackup" : "confirmStopStorage"),
         () => setRole(part.id, "none"));
@@ -1123,6 +1118,20 @@ function diskCard(disk, info, taken) {
   }
   node.append(body);
   return node;
+}
+
+async function ejectDisk(disk, role) {
+  if (!confirm(t(role === "nas" ? "confirmEjectNas" : "confirmEject", { name: disk.model }))) return;
+  // The NAS disk holds everything: ask twice.
+  if (role === "nas" && !confirm(t("confirmEjectNas2"))) return;
+  try {
+    await post("api/disks/eject", { role });
+  } catch (err) {
+    return alert(err.message);
+  }
+  snack(t("ejected", { name: disk.model }));
+  if (role === "nas") return loadStatus();
+  render();
 }
 
 // Changing disks restarts the add-on: wait for it to come back, then reload the page.
@@ -1752,7 +1761,8 @@ async function loadStatus() {
     const { disk, usage } = await api("api/status");
     showSetup(disk !== "mounted", disk);
     if (disk !== "mounted") {
-      $("disk-label").textContent = t(disk === "missing" ? "diskMissing" : "diskNone");
+      $("disk-label").textContent = t(disk === "missing" ? "diskMissing" : disk === "ejected" ? "diskEjectedShort" : "diskNone");
+      $("disk-bar").style.width = "0";
       return false;
     }
     $("disk-label").textContent = t("diskFree", { free: formatSize(usage.free), total: formatSize(usage.total) });
@@ -1767,9 +1777,25 @@ const FS_NAMES = { ext4: "ext4", exfat: "exFAT", ntfs: "NTFS", vfat: "FAT32" };
 
 function showSetup(visible, disk) {
   $("setup").hidden = !visible;
-  for (const id of ["gallery", "files", "crumbs", "topbar"]) $(id).hidden = visible;
+  for (const id of ["gallery", "files", "crumbs", "topbar", "home", "disks", "collections", "chips"]) $(id).hidden = visible;
   if (visible) showEmpty(null);
   if (!visible) return;
+  if (disk === "ejected") {
+    // The NAS disk was ejected on purpose: everything pauses until it is reactivated.
+    $("disk-list").innerHTML = "";
+    $("disk-refresh").hidden = true;
+    $("setup").querySelector("h1").textContent = t("nasEjectedTitle");
+    const admin = state.user && state.user.is_admin;
+    $("setup-lead").textContent = t(admin ? "nasEjected" : "nasEjectedUser");
+    if (admin) {
+      const again = el("button", "btn primary", t("reactivate"));
+      again.onclick = () => diskAction(t("confirmReactivate"), () => post("api/disks/reactivate", {}));
+      $("disk-list").append(again);
+    }
+    return;
+  }
+  $("setup").querySelector("h1").textContent = t("setupTitle");
+  $("disk-refresh").hidden = false;
   if (!state.user || !state.user.is_admin) {
     $("setup-lead").textContent = t("setupNoAdmin");
     $("disk-list").innerHTML = "";

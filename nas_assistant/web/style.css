@@ -327,6 +327,10 @@ dialog input { width: 100%; padding: 9px 10px; border-radius: 9px; border: 1px s
 /* --- Disks page ---------------------------------------------------------- */
 .disks { display: flex; flex-direction: column; gap: 18px; max-width: 900px; }
 .disk-card-big.system { opacity: .7; }
+.disk-card-big .card-head { flex-wrap: wrap; }
+.eject-btn { margin-left: auto; }
+#disk-list > .btn { align-self: flex-start; }
+.eject-btn i { width: 16px; height: 16px; }
 .part { width: 100%; display: flex; flex-direction: column; gap: 8px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
 .part:last-child { border-bottom: 0; padding-bottom: 0; }
 .part-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
