@@ -1838,7 +1838,42 @@ const GIVE_UP_MS = 10 * 60 * 1000;  // a file waits this long for the network be
 const QUEUE_KEY = "nas-upload-queue";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-const uploads = { jobs: [], running: false, started: 0, wakeLock: null, status: "", open: true };
+const uploads = { jobs: [], running: false, started: 0, wakeLock: null, status: "", open: true, base: "", pass: "" };
+
+// Through Home Assistant's Ingress uploads crawl: send them straight to the add-on when it can
+// be reached — its home address (60 MB/s at home; only from a page opened with http://, browsers
+// block http calls from https pages), else its public address — with a pass that only uploads.
+async function pickUploadRoute() {
+  uploads.base = "";
+  uploads.pass = "";
+  let session;
+  try { session = await api("api/upload/session", { method: "POST" }); } catch { return; }
+  const routes = [];
+  if (location.protocol === "http:" && session.lan) routes.push(session.lan);
+  if (session.public && session.public !== location.origin) routes.push(session.public);
+  for (const base of routes) {
+    try {
+      const res = await fetch(`${base}/api/upload/ping`, { signal: AbortSignal.timeout(2500) });
+      if (res.ok) { uploads.base = base; uploads.pass = session.token; return; }
+    } catch { /* not reachable from here: try the next */ }
+  }
+}
+
+// The upload pass expired (12 hours) or the add-on restarted: go on through Ingress.
+function passRefused(err) {
+  if (err.status !== 401 || !uploads.pass) return false;
+  uploads.base = uploads.pass = "";
+  return true;
+}
+
+// After a few failures in a row on the direct route, go back to Ingress.
+function directFailed() {
+  if (!uploads.base) return;
+  uploads.directFailures = (uploads.directFailures || 0) + 1;
+  if (uploads.directFailures >= 3) { uploads.base = ""; uploads.pass = ""; }
+}
+
+const uploadHeaders = () => (uploads.pass ? { Authorization: `Bearer ${uploads.pass}` } : {});
 
 function putChunk(url, blob, onProgress) {
   return new Promise((resolve, reject) => {
@@ -1849,6 +1884,7 @@ function putChunk(url, blob, onProgress) {
     }, 5000);
     const fail = (message, extra = {}) => { clearInterval(watchdog); reject(Object.assign(new Error(message), extra)); };
     xhr.open("PUT", url);
+    for (const [key, value] of Object.entries(uploadHeaders())) xhr.setRequestHeader(key, value);
     xhr.upload.onprogress = (e) => { last = Date.now(); onProgress(e.loaded); };
     xhr.onload = () => {
       clearInterval(watchdog);
@@ -1859,7 +1895,7 @@ function putChunk(url, blob, onProgress) {
       if (xhr.status === 409 && typeof detail.offset === "number") return fail("resume", { offset: detail.offset });
       // 4xx: the NAS refused this file (name, space, disk full…): trying again won't help.
       const permanent = xhr.status >= 400 && xhr.status < 500 && ![408, 429].includes(xhr.status) || xhr.status === 507;
-      fail(typeof detail === "string" ? tError(detail) : t("httpError", { status: xhr.status }), { permanent });
+      fail(typeof detail === "string" ? tError(detail) : t("httpError", { status: xhr.status }), { permanent, status: xhr.status });
     };
     xhr.onerror = () => fail(t("connectionLost"));
     xhr.onabort = () => fail(t("connectionStalled"));
@@ -1867,10 +1903,12 @@ function putChunk(url, blob, onProgress) {
   });
 }
 
-const uploadUrl = (job, extra) => `api/upload?${qs({ space: job.space, path: job.path, name: job.name, ...extra })}`;
+const uploadUrl = (job, extra) =>
+  `${uploads.base ? uploads.base + "/" : ""}api/upload?${qs({ space: job.space, path: job.path, name: job.name, ...extra })}`;
+const uploadApi = (url) => api(url, { headers: uploadHeaders() });
 
 async function serverOffset(job) {
-  const { offset } = await api(uploadUrl(job));
+  const { offset } = await uploadApi(uploadUrl(job));
   return offset;
 }
 
@@ -1891,8 +1929,10 @@ async function uploadPlan(job) {
   const since = Date.now();
   for (let attempt = 1; ; attempt++) {
     try {
-      return await api(uploadUrl(job, { size: job.size }));
+      return await uploadApi(uploadUrl(job, { size: job.size }));
     } catch (err) {
+      if (passRefused(err)) continue;
+      if (!err.status) directFailed();
       if (err.status && err.status < 500 && ![408, 429].includes(err.status)) throw err;  // refused: name, space…
       if (Date.now() - since > GIVE_UP_MS) throw err;
       await waitToRetry(attempt);
@@ -1919,12 +1959,15 @@ async function uploadJob(job) {
         (loaded) => { job.sent = offset + loaded; paintUploads(); });
       job.sent = offset = end;
       failingSince = attempt = 0;
+      uploads.directFailures = 0;
       setUploadStatus("");
       if (++good >= 3 && chunk < CHUNK_MAX) { chunk *= 2; good = 0; }  // the network is fine again
       if (final) { job.state = "done"; return; }
     } catch (err) {
       if (err.offset !== undefined) { offset = err.offset; continue; }  // the NAS says where to go on
+      if (passRefused(err)) continue;
       if (err.permanent) throw err;
+      directFailed();
       good = 0;
       // Phone locked, app in the background or offline: waiting doesn't count as failing.
       if (document.hidden || !navigator.onLine) {
@@ -2014,6 +2057,7 @@ async function runUploads() {
   uploads.started = Date.now();
   uploads.startBytes = sum(uploads.jobs, "sent");
   uploads.wakeLock = await keepAwake();
+  await pickUploadRoute();
   let job;
   while ((job = uploads.jobs.find((j) => j.state === "waiting"))) {
     job.state = "uploading";

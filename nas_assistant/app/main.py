@@ -6,6 +6,7 @@ import secrets
 import shutil
 import tempfile
 import time
+from typing import Dict
 from pathlib import Path
 
 import aiohttp
@@ -23,7 +24,7 @@ import segno
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
-app = FastAPI(title="NAS Assistant", version="0.21.0")
+app = FastAPI(title="NAS Assistant", version="0.21.1")
 
 # Small boards: decode at most two big images at once. Waiting requests queue
 # here, outside the worker threads, so uploads and browsing never stall behind them.
@@ -596,8 +597,65 @@ def upload(
     return storage.save_file(user, space, path, file.filename or "file", file.file)
 
 
+# --- Uploads straight to the add-on ------------------------------------------------
+#
+# Through Home Assistant's Ingress an upload crawls (measured: minutes for 20 MB), while the
+# add-on's own port takes 60 MB/s on the home network, and the public address (Cloudflare)
+# a few MB/s from outside. The page asks for an upload pass (12 hours, this user, uploads
+# only) and sends the pieces straight there; with no direct way it keeps using Ingress.
+
+UPLOAD_PASS_PREFIX = "upl_"
+UPLOAD_PASS_SECONDS = 12 * 3600
+_upload_passes: Dict[str, tuple] = {}  # pass -> (user, expires)
+UPLOAD_PATHS = ("/api/upload", "/api/upload/ping")
+
+
+@app.middleware("http")
+async def upload_cors(request: Request, call_next):
+    """Let the page (served through Home Assistant) send uploads to the add-on's own address.
+    Only the upload endpoints, and only with an upload pass: no cookies are involved."""
+    if request.url.path not in UPLOAD_PATHS:
+        return await call_next(request)
+    headers = {"Access-Control-Allow-Origin": request.headers.get("origin", "*"),
+               "Access-Control-Allow-Methods": "GET, PUT",
+               "Access-Control-Allow-Headers": "Authorization, Content-Type",
+               "Access-Control-Allow-Private-Network": "true",
+               "Access-Control-Max-Age": "600", "Vary": "Origin"}
+    if request.method == "OPTIONS":
+        return Response(status_code=204, headers=headers)
+    response = await call_next(request)
+    response.headers.update(headers)
+    return response
+
+
+async def web_uploader(request: Request) -> User:
+    """An upload pass (direct uploads) or the normal Home Assistant login (Ingress)."""
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer " + UPLOAD_PASS_PREFIX):
+        entry = _upload_passes.get(auth[len("Bearer "):])
+        if not entry or entry[1] < time.time():
+            raise HTTPException(401, "Not authorized")
+        return entry[0]
+    return await current_user(request)
+
+
+@app.post("/api/upload/session")
+def upload_session(user: User = Depends(current_user)):
+    now = time.time()
+    for key in [k for k, (_, expires) in _upload_passes.items() if expires < now]:
+        del _upload_passes[key]
+    token = UPLOAD_PASS_PREFIX + secrets.token_urlsafe(24)
+    _upload_passes[token] = (user, now + UPLOAD_PASS_SECONDS)
+    return {"token": token, "lan": LAN_IP_URL, "public": PUBLIC_URL}
+
+
+@app.get("/api/upload/ping")
+def upload_ping():
+    return {"ok": True}
+
+
 @app.get("/api/upload")
-async def upload_status(space: str, name: str, path: str = "", size: int = -1, user: User = Depends(current_user)):
+async def upload_status(space: str, name: str, path: str = "", size: int = -1, user: User = Depends(web_uploader)):
     """How many bytes of an interrupted upload the server already has. With `size`, the
     whole plan: already there (skip), resume, or the name to use if it is taken."""
     if size >= 0:
@@ -609,7 +667,7 @@ async def upload_status(space: str, name: str, path: str = "", size: int = -1, u
 @app.put("/api/upload")
 async def upload_chunk(
     request: Request, space: str, name: str, path: str = "", offset: int = 0, final: bool = False,
-    user: User = Depends(current_user),
+    user: User = Depends(web_uploader),
 ):
     """Resumable upload, one chunk per request: send the file in pieces with
     their byte offset; the last piece has final=1. A 409 tells the client

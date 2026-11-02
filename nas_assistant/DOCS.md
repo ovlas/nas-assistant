@@ -55,6 +55,10 @@ what each one is used for and how full it is. A free disk can be given a role, a
 Drag files onto the page or press **Upload**. A panel shows the whole upload: how much is sent out of the total,
 what is left, speed and time left, and how many files are uploaded, already there or not uploaded.
 
+- Uploads go straight to the add-on, not through Home Assistant's Ingress (which is very slow for uploads): on the
+  home network to its port 8456 when Home Assistant was opened with its local `http://` address (tens of MB/s),
+  otherwise to the **Public address** (e.g. Cloudflare), with a pass that only allows uploads and lasts 12 hours.
+  Without either, uploads use Ingress as before.
 - Files travel in pieces. When the connection drops, the piece is sent again from what really reached the disk,
   with smaller pieces while the network is bad, for up to 10 minutes per file. A locked phone or a background tab
   doesn't stop it.
