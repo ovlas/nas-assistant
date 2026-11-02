@@ -340,6 +340,25 @@ def save_file(user: User, space: str, rel_path: str, name: str, data: BinaryIO) 
     return {"name": target.name, "size": target.stat().st_size}
 
 
+def upload_plan(user: User, space: str, rel_path: str, name: str, size: int) -> dict:
+    """Before uploading a file: is it already there (same name and size: skip it), was it
+    half sent (resume from `offset`), or does another file have its name (use "name (2)")?"""
+    name = _check_name(name)
+    stem, suffix = os.path.splitext(name)
+    rel = rel_path.strip("/")
+    for n in range(1, 1000):
+        candidate = name if n == 1 else f"{stem} ({n}){suffix}"
+        existing = [p for p in candidates(user, space, os.path.join(rel, candidate)) if p.is_file()]
+        if existing:
+            if existing[0].stat().st_size == size:
+                return {"name": candidate, "complete": True, "offset": size}
+            continue  # a different file has this name: try the next one
+        parts = [p for p in candidates(user, space, os.path.join(rel, f".{candidate}.part")) if p.is_file()]
+        offset = parts[0].stat().st_size if parts else 0
+        return {"name": candidate, "complete": False, "offset": offset if offset <= size else 0}
+    raise HTTPException(409, "Already exists")
+
+
 def chunk_targets(user: User, space: str, rel_path: str, name: str):
     """Destination of a chunked upload and the hidden file it grows in meanwhile.
     All pieces of an upload go to the same disk: the one where it started."""

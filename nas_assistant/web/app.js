@@ -21,6 +21,10 @@ const ICON_PATHS = {
   download: '<path d="M12 4v12M7.5 11.5 12 16l4.5-4.5M4.5 15v2.5A2.5 2.5 0 0 0 7 20h10a2.5 2.5 0 0 0 2.5-2.5V15"/>',
   trash: '<path d="M4.5 6.5h15M9.5 6.5V4.8c0-.7.5-1.3 1.2-1.3h2.6c.7 0 1.2.6 1.2 1.3v1.7M6.5 6.5l.8 12.2c.1 1 .9 1.8 1.9 1.8h5.6c1 0 1.8-.8 1.9-1.8l.8-12.2"/>',
   close: '<path d="M6 6l12 12M18 6 6 18"/>',
+  check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+  clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
+  up: '<path d="M6 15l6-6 6 6"/>',
+  down: '<path d="M6 9l6 6 6-6"/>',
   left: '<path d="M15 5l-7 7 7 7"/>',
   right: '<path d="M9 5l7 7-7 7"/>',
   play: '<path d="M8 5.5v13l10.5-6.5z" fill="currentColor"/>',
@@ -72,7 +76,10 @@ function paintIcons(root = document) {
 
 async function api(url, opts) {
   const res = await fetch(url, opts);
-  if (!res.ok) throw new Error(tError((await res.json().catch(() => ({}))).detail || res.statusText));
+  if (!res.ok) {
+    const message = tError((await res.json().catch(() => ({}))).detail || res.statusText);
+    throw Object.assign(new Error(message), { status: res.status });
+  }
   return res.json();
 }
 
@@ -1814,13 +1821,24 @@ $("v-stage").addEventListener("touchend", (e) => {
 });
 
 // --- Upload -------------------------------------------------------------------
+//
+// Uploads must survive a flaky Wi-Fi, a locked phone and a closed page:
+// - files travel in pieces (1-16 MB, smaller while the network is bad); no request goes
+//   over the 100 MB limit of tunnels such as Cloudflare;
+// - a lost piece is sent again, for minutes if needed, from what really reached the disk;
+// - before a file starts, the NAS says if it is already there (skipped), half sent
+//   (resumed) or if another file has its name (the new one gets "name (2)");
+// - the queue is remembered: after a reload, choosing the same files again goes on from
+//   where it stopped.
 
-// Files travel in 16 MB pieces: a dropped connection only costs one piece,
-// and no request goes over the 100 MB limit of tunnels such as Cloudflare.
-const CHUNK = 16 * 1024 * 1024;
-const STALL_MS = 60 * 1000;
-const RETRIES = 4;
+const CHUNK_MIN = 1024 * 1024;
+const CHUNK_MAX = 16 * 1024 * 1024;
+const STALL_MS = 45 * 1000;
+const GIVE_UP_MS = 10 * 60 * 1000;  // a file waits this long for the network before "not uploaded"
+const QUEUE_KEY = "nas-upload-queue";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+const uploads = { jobs: [], running: false, started: 0, wakeLock: null, status: "", open: true };
 
 function putChunk(url, blob, onProgress) {
   return new Promise((resolve, reject) => {
@@ -1829,7 +1847,7 @@ function putChunk(url, blob, onProgress) {
     const watchdog = setInterval(() => {
       if (Date.now() - last > STALL_MS) xhr.abort();
     }, 5000);
-    const fail = (message, offset) => { clearInterval(watchdog); reject(Object.assign(new Error(message), { offset })); };
+    const fail = (message, extra = {}) => { clearInterval(watchdog); reject(Object.assign(new Error(message), extra)); };
     xhr.open("PUT", url);
     xhr.upload.onprogress = (e) => { last = Date.now(); onProgress(e.loaded); };
     xhr.onload = () => {
@@ -1838,8 +1856,10 @@ function putChunk(url, blob, onProgress) {
       try { body = JSON.parse(xhr.responseText || "{}"); } catch { /* not JSON */ }
       if (xhr.status < 300) return resolve(body);
       const detail = body.detail || {};
-      if (xhr.status === 409 && typeof detail.offset === "number") return fail("resume", detail.offset);
-      fail(typeof detail === "string" ? tError(detail) : t("httpError", { status: xhr.status }));
+      if (xhr.status === 409 && typeof detail.offset === "number") return fail("resume", { offset: detail.offset });
+      // 4xx: the NAS refused this file (name, space, disk full…): trying again won't help.
+      const permanent = xhr.status >= 400 && xhr.status < 500 && ![408, 429].includes(xhr.status) || xhr.status === 507;
+      fail(typeof detail === "string" ? tError(detail) : t("httpError", { status: xhr.status }), { permanent });
     };
     xhr.onerror = () => fail(t("connectionLost"));
     xhr.onabort = () => fail(t("connectionStalled"));
@@ -1847,51 +1867,90 @@ function putChunk(url, blob, onProgress) {
   });
 }
 
-async function uploadOne(file, path, onProgress) {
-  let offset = 0;
-  let attempts = 0;
-  for (;;) {
-    const end = Math.min(offset + CHUNK, file.size);
-    const final = end >= file.size;
-    const url = `api/upload?${qs({ space: state.space, path, name: file.name, offset, ...(final ? { final: 1 } : {}) })}`;
+const uploadUrl = (job, extra) => `api/upload?${qs({ space: job.space, path: job.path, name: job.name, ...extra })}`;
+
+async function serverOffset(job) {
+  const { offset } = await api(uploadUrl(job));
+  return offset;
+}
+
+// Waits out a bad network before trying again: a few seconds first, then up to 30.
+async function waitToRetry(attempt) {
+  if (!navigator.onLine) {
+    setUploadStatus(t("uploadPaused"));
+    return untilOnline();
+  }
+  for (let s = Math.min(30, 2 ** Math.min(attempt, 5)); s > 0; s--) {
+    setUploadStatus(t("retryingIn", { s, i: attempt }));
+    await sleep(1000);
+  }
+}
+
+// Already there, half sent, or another file with this name? Asked again until the NAS answers.
+async function uploadPlan(job) {
+  const since = Date.now();
+  for (let attempt = 1; ; attempt++) {
     try {
-      await putChunk(url, file.slice(offset, end), (loaded) => onProgress(offset + loaded));
-      if (final) return;
-      offset = end;
-      attempts = 0;
+      return await api(uploadUrl(job, { size: job.size }));
     } catch (err) {
-      if (err.offset !== undefined) { offset = err.offset; continue; }  // server tells where to resume
-      // Phone locked or app in the background (e.g. the Home Assistant app): wait, then go on from where it stopped.
-      if (document.hidden || !navigator.onLine) {
-        $("toast-text").textContent = t("uploadPaused");
-        await untilBack();
-        attempts = 0;
-        try {
-          ({ offset } = await api(`api/upload?${qs({ space: state.space, path, name: file.name })}`));
-        } catch { /* try the same piece again */ }
-        continue;
-      }
-      if (++attempts >= RETRIES) throw err;
-      $("toast-text").textContent = t("retrying", { i: attempts, n: RETRIES - 1 });
-      await sleep(2000 * attempts);
-      // Resume from what actually reached the disk, not from the start of the piece.
-      try {
-        ({ offset } = await api(`api/upload?${qs({ space: state.space, path, name: file.name })}`));
-      } catch { /* still offline: retry the same piece */ }
+      if (err.status && err.status < 500 && ![408, 429].includes(err.status)) throw err;  // refused: name, space…
+      if (Date.now() - since > GIVE_UP_MS) throw err;
+      await waitToRetry(attempt);
     }
   }
 }
 
-// Resolves when the page is visible and online again.
-function untilBack() {
+async function uploadJob(job) {
+  const plan = await uploadPlan(job);
+  setUploadStatus("");
+  job.name = plan.name;
+  if (plan.complete) { job.sent = job.size; job.state = "skipped"; return; }
+  let offset = plan.offset;
+  let chunk = 8 * 1024 * 1024;
+  let failingSince = 0;
+  let attempt = 0;
+  let good = 0;
+  job.state = "uploading";
+  for (;;) {
+    const end = Math.min(offset + chunk, job.size);
+    const final = end >= job.size;
+    try {
+      await putChunk(uploadUrl(job, { offset, ...(final ? { final: 1 } : {}) }), job.file.slice(offset, end),
+        (loaded) => { job.sent = offset + loaded; paintUploads(); });
+      job.sent = offset = end;
+      failingSince = attempt = 0;
+      setUploadStatus("");
+      if (++good >= 3 && chunk < CHUNK_MAX) { chunk *= 2; good = 0; }  // the network is fine again
+      if (final) { job.state = "done"; return; }
+    } catch (err) {
+      if (err.offset !== undefined) { offset = err.offset; continue; }  // the NAS says where to go on
+      if (err.permanent) throw err;
+      good = 0;
+      // Phone locked, app in the background or offline: waiting doesn't count as failing.
+      if (document.hidden || !navigator.onLine) {
+        failingSince = attempt = 0;
+      } else {
+        failingSince = failingSince || Date.now();
+        if (Date.now() - failingSince > GIVE_UP_MS) throw err;
+        chunk = Math.max(CHUNK_MIN, chunk / 2);  // smaller pieces get through a bad network
+      }
+      await waitToRetry(++attempt);
+      // Go on from what actually reached the disk, not from the start of the piece.
+      try { offset = await serverOffset(job); } catch { /* still offline: the same piece again */ }
+      job.sent = offset;
+    }
+  }
+}
+
+// Resolves when the device is online again. (A locked phone just freezes the page: it goes
+// on by itself when unlocked; a background tab on a computer keeps uploading.)
+function untilOnline() {
   return new Promise((resolve) => {
     const check = () => {
-      if (document.hidden || !navigator.onLine) return;
-      document.removeEventListener("visibilitychange", check);
+      if (!navigator.onLine) return;
       window.removeEventListener("online", check);
       setTimeout(resolve, 1000);  // let the network come back up
     };
-    document.addEventListener("visibilitychange", check);
     window.addEventListener("online", check);
     check();
   });
@@ -1901,39 +1960,213 @@ function untilBack() {
 async function keepAwake() {
   try { return await navigator.wakeLock.request("screen"); } catch { return null; }
 }
+document.addEventListener("visibilitychange", async () => {
+  if (!document.hidden && uploads.running && (!uploads.wakeLock || uploads.wakeLock.released)) uploads.wakeLock = await keepAwake();
+});
+window.addEventListener("beforeunload", (e) => {
+  if (uploads.running) { e.preventDefault(); e.returnValue = ""; }
+});
 
-async function upload(files) {
+// --- The queue, remembered across reloads ---------------------------------------
+
+const fileKey = (f) => `${f.name}|${f.size}|${f.lastModified}`;
+
+function saveQueue() {
+  const left = uploads.jobs.filter((j) => !["done", "skipped"].includes(j.state))
+    .map((j) => ({ key: j.key, name: j.original, size: j.size, space: j.space, path: j.path }));
+  try {
+    if (left.length) localStorage.setItem(QUEUE_KEY, JSON.stringify(left));
+    else localStorage.removeItem(QUEUE_KEY);
+  } catch { /* not remembered */ }
+}
+
+function savedQueue() {
+  try { return JSON.parse(localStorage.getItem(QUEUE_KEY) || "[]"); } catch { return []; }
+}
+
+function upload(files) {
   if (!files.length) return;
-  let wakeLock = await keepAwake();
-  const reacquire = async () => { if (!document.hidden && wakeLock && wakeLock.released) wakeLock = await keepAwake(); };
-  document.addEventListener("visibilitychange", reacquire);
-  // In the gallery new photos go to Photos/<year>/<month>, like a camera roll.
+  // Files of an unfinished upload go back where they were going; new ones to this folder.
+  const saved = new Map(savedQueue().map((s) => [s.key, s]));
   const now = new Date();
-  const target = state.view === "photos"
+  const here = state.view === "photos"
     ? join(t("photosFolder"), String(now.getFullYear()), String(now.getMonth() + 1).padStart(2, "0"))
     : state.path;
-  const total = files.reduce((sum, f) => sum + f.size, 0) || 1;
-  let done = 0;
-  const errors = [];
-  $("toast").hidden = false;
-  for (const [i, file] of files.entries()) {
-    $("toast-text").textContent = t("uploading", { i: i + 1, n: files.length, name: file.name });
-    try {
-      await uploadOne(file, target, (loaded) => { $("toast-bar").style.width = `${((done + loaded) / total) * 100}%`; });
-    } catch (err) {
-      errors.push(`${file.name}: ${err.message}`);
-    }
-    done += file.size;
+  const space = isDisk(state.space) ? "personal" : state.space;
+  const queued = new Set(uploads.jobs.filter((j) => !["done", "skipped", "failed"].includes(j.state)).map((j) => j.key));
+  for (const file of files) {
+    const key = fileKey(file);
+    if (queued.has(key)) continue;
+    const before = saved.get(key);
+    uploads.jobs = uploads.jobs.filter((j) => j.key !== key);  // choosing a failed file again retries it
+    uploads.jobs.push({ key, file, original: file.name, name: file.name, size: file.size, sent: 0, state: "waiting", error: "",
+      space: before ? before.space : space, path: before ? before.path : here });
   }
-  $("toast-text").textContent = errors.length ? t("notUploaded", { n: errors.length }) : t("uploaded", { n: files.length });
-  $("toast-bar").style.width = "100%";
-  document.removeEventListener("visibilitychange", reacquire);
-  if (wakeLock) wakeLock.release().catch(() => {});
-  if (errors.length) alert(errors.join("\n"));
-  setTimeout(() => { $("toast").hidden = true; $("toast-bar").style.width = "0"; }, 2500);
+  uploads.open = true;
+  saveQueue();
+  runUploads();
+}
+
+async function runUploads() {
+  paintUploads();
+  if (uploads.running) return;
+  uploads.running = true;
+  uploads.started = Date.now();
+  uploads.startBytes = sum(uploads.jobs, "sent");
+  uploads.wakeLock = await keepAwake();
+  let job;
+  while ((job = uploads.jobs.find((j) => j.state === "waiting"))) {
+    job.state = "uploading";
+    paintUploads();
+    try {
+      await uploadJob(job);
+    } catch (err) {
+      job.state = "failed";
+      job.error = err.message;
+    }
+    setUploadStatus("");
+    saveQueue();
+    paintUploads();
+  }
+  uploads.running = false;
+  if (uploads.wakeLock) uploads.wakeLock.release().catch(() => {});
+  paintUploads();
   render();
   loadStatus();
 }
+
+const sum = (jobs, field) => jobs.reduce((n, j) => n + j[field], 0);
+
+function setUploadStatus(text) {
+  uploads.status = text;
+  paintUploads();
+}
+
+// --- The upload panel: how much, how much is left, what didn't make it -----------
+
+const UPLOAD_ICONS = { waiting: "clock", uploading: "upload", done: "check", skipped: "check", failed: "close" };
+let paintQueued = false;
+
+function paintUploads() {
+  if (paintQueued) return;
+  paintQueued = true;
+  // A timer, not requestAnimationFrame: the panel must be right when coming back to the tab.
+  setTimeout(() => { paintQueued = false; drawUploads(); }, 100);
+}
+
+function drawUploads() {
+  const panel = $("upload-panel");
+  const jobs = uploads.jobs;
+  const saved = uploads.running ? [] : savedQueue().filter((s) => !jobs.some((j) => j.key === s.key));
+  panel.hidden = !jobs.length && !saved.length;
+  if (panel.hidden) return;
+  const total = sum(jobs, "size") || 1;
+  const sent = sum(jobs, "sent");
+  const count = (state) => jobs.filter((j) => j.state === state).length;
+  const failed = jobs.filter((j) => j.state === "failed");
+  const finished = count("done") + count("skipped");
+  const seconds = (Date.now() - uploads.started) / 1000;
+  const speed = uploads.running && seconds > 3 ? (sent - uploads.startBytes) / seconds : 0;
+  const left = total - sent - sum(failed, "size") + sum(failed, "sent");
+
+  const head = el("div", "up-head");
+  const title = jobs.length
+    ? t(uploads.running ? "upTitle" : failed.length ? "upTitleFailed" : "upTitleDone", { i: finished, n: jobs.length })
+    : t("upResumeTitle", { n: saved.length });
+  head.append(el("strong", "", title));
+  const toggle = el("button", "icon-btn");
+  toggle.append(iconEl(uploads.open ? "down" : "up"));
+  toggle.title = t(uploads.open ? "upHide" : "upShow");
+  toggle.onclick = () => { uploads.open = !uploads.open; drawUploads(); };
+  head.append(toggle);
+  if (!uploads.running) {
+    const close = el("button", "icon-btn");
+    close.append(iconEl("close"));
+    close.title = t("close");
+    // Files not uploaded stay remembered: the panel then offers to choose them again.
+    close.onclick = () => {
+      if (!jobs.length) try { localStorage.removeItem(QUEUE_KEY); } catch { /* nothing to forget */ }
+      uploads.jobs = [];
+      drawUploads();
+    };
+    head.append(close);
+  }
+  const nodes = [head];
+
+  if (jobs.length) {
+    const bar = el("div", "bar");
+    const fill = el("div", "bar-fill");
+    fill.style.width = `${Math.min(100, (sent / total) * 100)}%`;
+    bar.append(fill);
+    const figures = [t("upSent", { sent: formatSize(sent), total: formatSize(total) })];
+    if (uploads.running && left > 0) figures.push(t("upLeft", { left: formatSize(left) }));
+    if (speed > 0) {
+      figures.push(`${formatSize(speed)}/s`);
+      figures.push(t("upEta", { time: duration(left / speed) }));
+    }
+    const chips = el("div", "up-chips");
+    if (count("done")) chips.append(el("span", "up-chip ok", t("upDone", { n: count("done") })));
+    if (count("skipped")) chips.append(el("span", "up-chip ok", t("upSkipped", { n: count("skipped") })));
+    if (count("waiting") + count("uploading")) chips.append(el("span", "up-chip", t("upWaiting", { n: count("waiting") + count("uploading") })));
+    if (failed.length) chips.append(el("span", "up-chip bad", t("upFailed", { n: failed.length })));
+    nodes.push(bar, el("div", "up-figures", figures.join(" · ")), chips);
+    if (uploads.status) nodes.push(el("div", "up-status", uploads.status));
+  }
+
+  if (uploads.open) {
+    const list = el("div", "up-list");
+    // Failed files first, then the one going up, then the rest (the last 150).
+    const order = { failed: 0, uploading: 1, waiting: 2, done: 3, skipped: 3 };
+    const rows = [...jobs].sort((a, b) => order[a.state] - order[b.state]).slice(0, 150);
+    for (const job of rows) {
+      const row = el("div", `up-row ${job.state}`);
+      row.append(iconEl(UPLOAD_ICONS[job.state]));
+      const text = el("div", "up-name");
+      text.append(el("div", "", job.name));
+      const sub = job.state === "failed" ? job.error
+        : job.state === "skipped" ? t("upAlready")
+          : job.state === "uploading" ? `${Math.floor((job.sent / (job.size || 1)) * 100)}% · ${formatSize(job.size)}`
+            : formatSize(job.size);
+      text.append(el("div", "card-sub", sub));
+      row.append(text);
+      list.append(row);
+    }
+    if (rows.length) nodes.push(list);
+    if (saved.length) {
+      nodes.push(el("p", "up-hint", t("upResumeText", { n: saved.length,
+        size: formatSize(saved.reduce((n, s) => n + s.size, 0)) })));
+    }
+  }
+
+  const actions = el("div", "up-actions");
+  if (!uploads.running && failed.length) {
+    const retry = el("button", "btn primary", t("upRetry"));
+    retry.onclick = () => {
+      for (const job of failed) Object.assign(job, { state: "waiting", error: "" });
+      runUploads();
+    };
+    actions.append(retry);
+  }
+  if (!uploads.running && saved.length) {
+    const pick = el("button", "btn primary", t("upPickAgain"));
+    pick.onclick = () => $("file-input").click();
+    const forget = el("button", "btn", t("upForget"));
+    forget.onclick = () => { try { localStorage.removeItem(QUEUE_KEY); } catch { /* nothing */ } drawUploads(); };
+    actions.append(pick, forget);
+  }
+  if (actions.children.length) nodes.push(actions);
+  panel.classList.toggle("collapsed", !uploads.open);
+  panel.replaceChildren(...nodes);
+}
+
+function duration(seconds) {
+  if (!isFinite(seconds)) return "…";
+  if (seconds < 60) return t("secondsShort", { n: Math.max(1, Math.round(seconds)) });
+  if (seconds < 3600) return t("minutesShort", { n: Math.round(seconds / 60) });
+  return t("hoursShort", { h: Math.floor(seconds / 3600), m: Math.round((seconds % 3600) / 60) });
+}
+
+drawUploads();  // an upload left unfinished last time
 
 $("file-input").onchange = (e) => { upload([...e.target.files]); e.target.value = ""; };
 const main = $("main");

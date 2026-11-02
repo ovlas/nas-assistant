@@ -50,6 +50,19 @@ what each one is used for and how full it is. A free disk can be given a role, a
   initialized or given a role.
 - A disk that doesn't appear is not visible to Home Assistant itself: check its power supply, cable and USB port.
 
+## Uploading
+
+Drag files onto the page or press **Upload**. A panel shows the whole upload: how much is sent out of the total,
+what is left, speed and time left, and how many files are uploaded, already there or not uploaded.
+
+- Files travel in pieces. When the connection drops, the piece is sent again from what really reached the disk,
+  with smaller pieces while the network is bad, for up to 10 minutes per file. A locked phone or a background tab
+  doesn't stop it.
+- A file already on the NAS (same name and size) is skipped. A different file with the same name is kept as
+  "name (2)": nothing is ever overwritten.
+- If the page is closed mid-way, the panel remembers it: choose the same files again (all of them is fine) and the
+  upload goes on from where it stopped. Files that didn't make it can be retried in one tap.
+
 ## Watch on the TV
 
 Photos and videos can be shown on any TV or player Home Assistant knows (Chromecast / Google TV, Samsung, LG,

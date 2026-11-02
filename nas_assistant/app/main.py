@@ -23,7 +23,7 @@ import segno
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
-app = FastAPI(title="NAS Assistant", version="0.20.1")
+app = FastAPI(title="NAS Assistant", version="0.21.0")
 
 # Small boards: decode at most two big images at once. Waiting requests queue
 # here, outside the worker threads, so uploads and browsing never stall behind them.
@@ -597,8 +597,11 @@ def upload(
 
 
 @app.get("/api/upload")
-async def upload_status(space: str, name: str, path: str = "", user: User = Depends(current_user)):
-    """How many bytes of an interrupted upload the server already has."""
+async def upload_status(space: str, name: str, path: str = "", size: int = -1, user: User = Depends(current_user)):
+    """How many bytes of an interrupted upload the server already has. With `size`, the
+    whole plan: already there (skip), resume, or the name to use if it is taken."""
+    if size >= 0:
+        return await run_in_threadpool(storage.upload_plan, user, space, path, name, size)
     partial, _ = storage.chunk_targets(user, space, path, name)
     return {"offset": partial.stat().st_size if partial.exists() else 0}
 
@@ -615,12 +618,23 @@ async def upload_chunk(
     have = partial.stat().st_size if partial.exists() else 0
     if offset and offset != have:
         raise HTTPException(409, {"message": "Resuming upload", "offset": have})
-    with open(partial, "ab" if offset else "wb") as out:
+    # The disk may be slow (USB 2, NTFS): write in a worker thread, in big blocks, so other
+    # requests (and the other pieces) never wait behind it.
+    out = await run_in_threadpool(open, partial, "ab" if offset else "wb")
+    try:
+        buffer = bytearray()
         async for chunk in request.stream():
-            out.write(chunk)
+            buffer += chunk
+            if len(buffer) >= 4 * 1024 * 1024:
+                await run_in_threadpool(out.write, bytes(buffer))
+                buffer.clear()
+        if buffer:
+            await run_in_threadpool(out.write, bytes(buffer))
+    finally:
+        await run_in_threadpool(out.close)
     if not final:
         return {"offset": partial.stat().st_size}
-    os.replace(partial, target)
+    await run_in_threadpool(os.replace, partial, target)
     return {"name": target.name, "size": target.stat().st_size}
 
 
