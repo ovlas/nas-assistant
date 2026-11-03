@@ -53,7 +53,9 @@ what each one is used for and how full it is. A free disk can be given a role, a
 
 ## Uploading
 
-Drag files onto the page or press **Upload**. A panel shows the whole upload: how much is sent out of the total,
+Drag files or whole folders onto the page, or press **Upload** (files) or **Folder** (a folder with everything in
+it, subfolders included). A Mac app is a folder too: drag it to upload it whole. An empty file that is really a
+folder the browser couldn't read is reported, never uploaded as an empty file. A panel shows the whole upload: how much is sent out of the total,
 what is left, speed and time left, and how many files are uploaded, already there or not uploaded.
 
 - Uploads go straight to the add-on, not through Home Assistant's Ingress (which is very slow for uploads): on the
@@ -71,6 +73,13 @@ what is left, speed and time left, and how many files are uploaded, already ther
   "name (2)": nothing is ever overwritten.
 - If the page is closed mid-way, the panel remembers it: choose the same files again (all of them is fine) and the
   upload goes on from where it stopped. Files that didn't make it can be retried in one tap.
+
+## Downloading
+
+**Download** (menu ⋯, or the viewer) gets a secret link valid a few hours that goes straight to the add-on, like
+uploads: on the home network when Home Assistant was opened with its local `http://` address, otherwise through the
+**Public address**. Downloads of files can be resumed by the browser. A folder downloads as a **.zip** made while it
+is sent (stored, not compressed, so it starts at once and stays fast). Videos in the viewer play the same fast way.
 
 ## Watch on the TV
 

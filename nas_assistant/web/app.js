@@ -103,6 +103,55 @@ const kindOf = (name) => (IMAGE.test(name) ? "image" : VIDEO.test(name) ? "video
 // "Other files on the disk": space "disk" lists the disks, "disk:nas" / "disk:storage" browse one (read only).
 const isDisk = (space) => typeof space === "string" && space.startsWith("disk");
 const thumbUrl = (path, v, size = "s", space = state.space) => `api/thumb?${qs({ space, path, size, v })}`;
+// Downloads and video playback go straight to the add-on (see downloads.py): through
+// Ingress big files crawl. A link costs one request; it is kept for a few minutes.
+const fastLinks = new Map();
+async function fastUrl(path, inline = false, space = state.space) {
+  const key = `${space}|${path}`;
+  const cached = fastLinks.get(key);
+  let link = cached && cached.until > Date.now() ? cached.link : null;
+  if (!link) {
+    link = await post("api/download/link", { space, path });
+    fastLinks.set(key, { link, until: Date.now() + 30 * 60 * 1000 });
+  }
+  const base = await downloadBase();
+  return `${base ? base + "/" : ""}dl/${link.token}/${encodeURIComponent(link.name)}${inline ? "?inline=1" : ""}`;
+}
+
+// The fastest address of the add-on that answers from here (the same choice as uploads).
+let baseCheck = null;
+function downloadBase() {
+  if (!baseCheck || baseCheck.until < Date.now()) {
+    baseCheck = { until: Date.now() + 5 * 60 * 1000, base: (async () => {
+      let session;
+      try { session = await api("api/upload/session", { method: "POST" }); } catch { return ""; }
+      const routes = [];
+      if (location.protocol === "http:" && session.lan) routes.push(session.lan);
+      if (session.public && session.public !== location.origin) routes.push(session.public);
+      for (const base of routes) {
+        try {
+          if ((await fetch(`${base}/api/upload/ping`, { signal: AbortSignal.timeout(2500) })).ok) return base;
+        } catch { /* not from here */ }
+      }
+      return "";
+    })() };
+  }
+  return baseCheck.base;
+}
+
+async function downloadItem(path, space = state.space) {
+  try {
+    const a = el("a");
+    a.href = await fastUrl(path, false, space);
+    a.download = "";
+    document.body.append(a);
+    a.click();
+    a.remove();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
 const fileUrl = (path, inline = false, space = state.space) =>
   `api/download?${qs({ space, path, ...(inline ? { inline: 1 } : {}) })}`;
 
@@ -157,6 +206,7 @@ function setHeader(title, subtitle) {
   $("layout-switch").hidden = state.view !== "files";
   document.querySelectorAll("#layout-switch button").forEach((b) => b.classList.toggle("active", b.dataset.layout === state.layout));
   $("upload-btn").hidden = ["trash", "disks", "collections", "collection"].includes(state.view) || isDisk(state.space);
+  $("folder-btn").hidden = $("upload-btn").hidden || state.view !== "files";
   $("empty-trash").hidden = true;
   $("tv-btn").hidden = true;  // shown by the photo views once they have items
   $("sort-btn").hidden = !["files", "collection"].includes(state.view);
@@ -483,7 +533,8 @@ function fileRow(entry) {
   row.onclick = () => {
     if (entry.is_dir) return go(state.space, "files", path);
     if (kind) return openViewer(state.items.findIndex((i) => i.path === path));
-    window.open(fileUrl(path, true, entry.space || state.space), "_blank");
+    const tab = window.open("", "_blank");  // opened now: a popup blocker allows it only on the click
+    fastUrl(path, true, entry.space || state.space).then((url) => { tab.location = url; }, () => tab.close());
   };
   return row;
 }
@@ -832,7 +883,8 @@ function openFrom(space, entry) {
     state.openPath = entry.path;
     return go(space, "photos");
   }
-  window.open(fileUrl(entry.path, true, space), "_blank");
+  const tab = window.open("", "_blank");
+  fastUrl(entry.path, true, space).then((url) => { tab.location = url; }, () => tab.close());
 }
 
 function photosCard(photos) {
@@ -1563,14 +1615,14 @@ function openMenu(entry, rect) {
   if (isDisk(state.space)) {
     // Other files on the disk: read only, they can be copied into a space.
     item("move", t("copyTo"), () => openCopyDialog(entry));
-    if (!entry.is_dir) item("download", t("download"), () => { location.href = fileUrl(entry.path); });
+    item("download", t(entry.is_dir ? "downloadZip" : "download"), () => downloadItem(entry.path));
     return placeMenu(menu, rect);
   }
   if (state.view === "collection") {
     // Inside a collection: the file stays where it is, only the grouping changes.
     const folder = entry.path.includes("/") ? entry.path.slice(0, entry.path.lastIndexOf("/")) : "";
     item("folder", t("showInFolder"), () => go(entry.space, "files", folder));
-    item("download", t("download"), () => { location.href = fileUrl(entry.path, false, entry.space); });
+    item("download", t("download"), () => downloadItem(entry.path, entry.space));
     item("close", t("removeFromCollection"), async () => { await removeFromCollection(entry); render(); }, true);
     return placeMenu(menu, rect);
   }
@@ -1581,7 +1633,7 @@ function openMenu(entry, rect) {
   });
   item("rename", t("rename"), () => renameItem(entry));
   item("move", t("moveTo"), () => openMoveDialog(entry));
-  if (!entry.is_dir) item("download", t("download"), () => { location.href = fileUrl(entry.path); });
+  item("download", t(entry.is_dir ? "downloadZip" : "download"), () => downloadItem(entry.path));
   item("trash", t("moveToTrash"), async () => {
     await removeItem(entry.path);
     render();
@@ -1728,7 +1780,9 @@ function showViewerItem() {
   stage.innerHTML = "";
   if (item.kind === "video") {
     const video = el("video");
-    video.src = fileUrl(item.path, true, item.space || state.space);
+    // The poster shows at once; the video itself comes the fast way.
+    fastUrl(item.path, true, item.space || state.space).then((url) => { video.src = url; },
+      () => { video.src = fileUrl(item.path, true, item.space || state.space); });
     video.controls = true;
     video.autoplay = true;
     video.playsInline = true;
@@ -1748,6 +1802,7 @@ function showViewerItem() {
   $("v-date").textContent = `${dayFmt.format(date)} · ${timeFmt.format(date)}`;
   $("v-name").textContent = item.name;
   $("v-download").href = fileUrl(item.path, false, item.space || state.space);
+  $("v-download").onclick = (e) => { e.preventDefault(); downloadItem(item.path, item.space || state.space); };
   $("v-delete").title = t(state.view === "collection" ? "removeFromCollection" : "moveToTrash");
   for (const id of ["v-fav", "v-rename", "v-album", "v-delete"]) $(id).hidden = viewerReadOnly();
   paintFavButton(item);
@@ -2054,6 +2109,16 @@ function countSent(job) {
 }
 
 async function uploadJob(job) {
+  // An empty file may really be a folder or a package the browser couldn't read (a Mac
+  // app), or a file the browser zips on the fly: never send nothing in its place.
+  if (job.size === 0) {
+    let bytes;
+    try { bytes = await job.file.arrayBuffer(); } catch { throw new Error(t("upIsFolder")); }
+    if (bytes.byteLength) {
+      job.file = new File([bytes], job.file.name, { lastModified: job.file.lastModified });
+      job.size = bytes.byteLength;
+    }
+  }
   let plan = await uploadPlan(job);
   setUploadStatus("");
   job.name = plan.name;
@@ -2156,7 +2221,10 @@ window.addEventListener("beforeunload", (e) => {
 
 // --- The queue, remembered across reloads ---------------------------------------
 
-const fileKey = (f) => `${f.name}|${f.size}|${f.lastModified}`;
+const fileKey = (f, dir = "") => `${dir ? dir + "/" : ""}${f.name}|${f.size}|${f.lastModified}`;
+const dirOf = (relative) => (relative && relative.includes("/") ? relative.slice(0, relative.lastIndexOf("/")) : "");
+// Hidden files and folders (.DS_Store, .git…) are left out, as everywhere in NAS Assistant.
+const visible = ({ file, dir }) => !file.name.startsWith(".") && !dir.split("/").some((part) => part.startsWith("."));
 
 function saveQueue() {
   const left = uploads.jobs.filter((j) => !["done", "skipped"].includes(j.state))
@@ -2171,7 +2239,10 @@ function savedQueue() {
   try { return JSON.parse(localStorage.getItem(QUEUE_KEY) || "[]"); } catch { return []; }
 }
 
-function upload(files) {
+// Files, or { file, dir } for the files of a folder: dir is where they go under this folder.
+function upload(items) {
+  const files = items.map((item) => (item instanceof File ? { file: item, dir: dirOf(item.webkitRelativePath) } : item))
+    .filter(visible);
   if (!files.length) return;
   // Files of an unfinished upload go back where they were going; new ones to this folder.
   const saved = new Map(savedQueue().map((s) => [s.key, s]));
@@ -2181,13 +2252,13 @@ function upload(files) {
     : state.path;
   const space = isDisk(state.space) ? "personal" : state.space;
   const queued = new Set(uploads.jobs.filter((j) => !["done", "skipped", "failed"].includes(j.state)).map((j) => j.key));
-  for (const file of files) {
-    const key = fileKey(file);
+  for (const { file, dir } of files) {
+    const key = fileKey(file, dir);
     if (queued.has(key)) continue;
     const before = saved.get(key);
     uploads.jobs = uploads.jobs.filter((j) => j.key !== key);  // choosing a failed file again retries it
     uploads.jobs.push({ key, file, original: file.name, name: file.name, size: file.size, sent: 0, state: "waiting", error: "",
-      space: before ? before.space : space, path: before ? before.path : here });
+      space: before ? before.space : space, path: before ? before.path : join(here, dir) });
   }
   uploads.open = true;
   saveQueue();
@@ -2378,6 +2449,32 @@ function duration(seconds) {
 drawUploads();  // an upload left unfinished last time
 
 $("file-input").onchange = (e) => { upload([...e.target.files]); e.target.value = ""; };
+$("folder-input").onchange = (e) => { upload([...e.target.files]); e.target.value = ""; };
+
+// Dropped folders (and Mac apps, which are folders) go up whole, with their subfolders.
+// The entries must be taken during the drop event itself, before anything is awaited.
+async function droppedFiles(dataTransfer) {
+  const entries = [...dataTransfer.items].filter((i) => i.kind === "file")
+    .map((i) => (i.webkitGetAsEntry ? i.webkitGetAsEntry() : null));
+  if (!entries.length || entries.some((e) => !e)) return [...dataTransfer.files];
+  const out = [];
+  const walk = async (entry, dir) => {
+    if (entry.name.startsWith(".")) return;
+    if (entry.isFile) {
+      try { out.push({ file: await new Promise((ok, fail) => entry.file(ok, fail)), dir }); } catch { /* unreadable: skip */ }
+      return;
+    }
+    const reader = entry.createReader();
+    const inside = join(dir, entry.name);
+    for (;;) {
+      const batch = await new Promise((ok, fail) => reader.readEntries(ok, fail)).catch(() => []);
+      if (!batch.length) break;
+      for (const child of batch) await walk(child, inside);
+    }
+  };
+  for (const entry of entries) await walk(entry, "");
+  return out;
+}
 const main = $("main");
 const draggingFiles = (e) => e.dataTransfer.types.includes("Files") && state.view !== "trash";
 main.ondragover = (e) => {
@@ -2390,7 +2487,10 @@ main.ondrop = (e) => {
   if (!draggingFiles(e)) return;
   e.preventDefault();
   main.classList.remove("dragging");
-  if ($("setup").hidden) upload([...e.dataTransfer.files]);
+  if (!$("setup").hidden) return;
+  const pending = droppedFiles(e.dataTransfer);
+  setUploadStatus(t("upReadingFolder"));
+  pending.then((files) => { setUploadStatus(""); upload(files); });
 };
 
 $("new-folder").onclick = async () => {

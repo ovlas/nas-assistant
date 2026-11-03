@@ -375,6 +375,8 @@ def chunk_targets(user: User, space: str, rel_path: str, name: str):
     All pieces of an upload go to the same disk: the one where it started."""
     name = _check_name(name)
     rel = rel_path.strip("/")
+    if any(part.startswith(".") for part in rel.split("/") if part):
+        raise HTTPException(400, "Invalid path")  # never into hidden folders (.nas_assistant, .trash…)
     started = candidates(user, space, os.path.join(rel, f".{name}.part"))
     target = started[0].parent / name if started else resolve(user, space, os.path.join(rel, name))
     target.parent.mkdir(parents=True, exist_ok=True)

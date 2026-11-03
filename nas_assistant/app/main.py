@@ -13,11 +13,11 @@ from pathlib import Path
 import aiohttp
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from urllib.parse import urlencode
+from urllib.parse import urlencode, quote
 
-from . import albums, auth, backup, devices, diskadmin, disks, dlna, favorites, media, pieces, plugplay, rawdisk, storage, tv
+from . import albums, auth, backup, devices, diskadmin, disks, dlna, downloads, favorites, media, pieces, plugplay, rawdisk, storage, tv
 from .auth import User, admin_user, avatar, current_user
 from .kinds import media_kind
 
@@ -26,7 +26,7 @@ import segno
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
 log = logging.getLogger("uvicorn.error")
-app = FastAPI(title="NAS Assistant", version="0.24.0")
+app = FastAPI(title="NAS Assistant", version="0.25.0")
 
 # Small boards: decode at most two big images at once. Waiting requests queue
 # here, outside the worker threads, so uploads and browsing never stall behind them.
@@ -858,6 +858,29 @@ async def download(space: str, path: str, inline: bool = False, user: User = Dep
     if not target.is_file():
         raise HTTPException(404, "File not found")
     return file_response(target, inline)
+
+
+@app.post("/api/download/link")
+async def download_link(request: Request, user: User = Depends(current_user)):
+    """A secret link (a few hours) to download one file, or a folder as .zip, straight from the
+    add-on: fast at home and from outside, resumable for files. See downloads.py."""
+    space, path = await _fields(request, "space", "path")
+    if space.startswith(rawdisk.PREFIX):
+        targets = [_source(user, space, path)]
+    else:
+        targets = storage.candidates(user, space, path) or [storage.resolve(user, space, path)]
+    return downloads.make(targets)
+
+
+@app.api_route("/dl/{token}/{name}", methods=["GET", "HEAD"])
+async def download_by_link(token: str, name: str, inline: bool = False):
+    targets, filename = downloads.get(token)
+    if targets[0].is_file():
+        return file_response(targets[0], inline)
+    files = await run_in_threadpool(downloads.folder_files, targets)
+    return StreamingResponse(downloads.zip_stream(files), media_type="application/zip",
+                             headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}",
+                                      **FILE_HEADERS})
 
 
 @app.delete("/api/files")
