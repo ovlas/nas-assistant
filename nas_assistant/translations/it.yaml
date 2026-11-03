@@ -23,8 +23,9 @@ configuration:
   public_url:
     name: "Indirizzo pubblico"
     description: "Indirizzo di NAS Assistant da fuori casa, es. https://nas.esempio.com (un host del tunnel Cloudflare che punta alla porta 8456). Compare quando colleghi un telefono."
+  dlna:
+    name: TV di casa (DLNA)
+    description: "Condivide lo spazio Famiglia con le smart TV della rete di casa (sola lettura, mai gli spazi personali)."
   log_level:
     name: Livello log
     description: Quanti dettagli l'add-on scrive nel log.
-network:
-  8456/tcp: API per le app mobili (LAN / Tailscale)

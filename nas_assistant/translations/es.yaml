@@ -23,8 +23,9 @@ configuration:
   public_url:
     name: "Dirección pública"
     description: "Dirección de NAS Assistant desde fuera de casa, p. ej. https://nas.ejemplo.com (un host del túnel de Cloudflare hacia el puerto 8456). Se muestra al conectar un teléfono."
+  dlna:
+    name: TV de casa (DLNA)
+    description: "Comparte el espacio Familia con las smart TV de la red de casa (solo lectura, nunca los espacios privados)."
   log_level:
     name: Nivel de registro
     description: Cuánto detalle escribe el complemento en su registro.
-network:
-  8456/tcp: API para las apps móviles (LAN / Tailscale)

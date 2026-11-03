@@ -1,5 +1,5 @@
 name: NAS Assistant
-version: "0.22.0"
+version: "0.23.0"
 slug: nas_assistant
 description: Your family cloud, at home. A private space for every Home Assistant user, on a disk you choose
 url: https://github.com/ovlas/nas-assistant
@@ -15,10 +15,10 @@ panel_icon: mdi:harddisk
 panel_title: NAS Assistant
 # Every family member sees the panel, not only HA admins.
 panel_admin: false
-ports:
-  8456/tcp: 8456
-ports_description:
-  8456/tcp: API for the mobile apps (LAN / Tailscale)
+# The home network itself: smart TVs find the DLNA media server (UDP 1900 multicast,
+# port 8200) only there. The web UI and the API stay on port 8456, as before; other
+# add-ons (e.g. Cloudflared) still reach it by its hostname.
+host_network: true
 homeassistant_api: true
 # Only to read /network/info: the home IP address goes in the pairing QR (Android does not resolve .local names).
 hassio_api: true
@@ -45,6 +45,7 @@ options:
   backup_time: "03:00"
   backup_keep_days: 30
   log_level: info
+  dlna: false
 schema:
   device: device(subsystem=block)?
   disk: str?
@@ -56,3 +57,4 @@ schema:
   backup_keep_days: int(1,365)
   public_url: url?
   log_level: list(debug|info|warning|error)
+  dlna: bool?

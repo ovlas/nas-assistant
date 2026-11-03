@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from urllib.parse import urlencode
 
-from . import albums, backup, devices, diskadmin, disks, favorites, media, plugplay, rawdisk, storage, tv
+from . import albums, backup, devices, diskadmin, disks, dlna, favorites, media, plugplay, rawdisk, storage, tv
 from .auth import User, admin_user, avatar, current_user
 from .kinds import media_kind
 
@@ -24,7 +24,7 @@ import segno
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
-app = FastAPI(title="NAS Assistant", version="0.22.0")
+app = FastAPI(title="NAS Assistant", version="0.23.0")
 
 # Small boards: decode at most two big images at once. Waiting requests queue
 # here, outside the worker threads, so uploads and browsing never stall behind them.
@@ -40,6 +40,16 @@ async def start_backup_scheduler():
 async def warm_folders():
     # Big disks: read every folder once now, so the first pages don't wait for it.
     asyncio.get_running_loop().run_in_executor(None, storage.warm)
+
+
+@app.on_event("startup")
+async def start_tv_media_server():
+    asyncio.get_running_loop().create_task(dlna.start())
+
+
+@app.on_event("shutdown")
+def stop_tv_media_server():
+    dlna.stop()
 
 
 @app.on_event("startup")
@@ -355,6 +365,23 @@ async def tv_file(token: str, name: str, request: Request):
         out = await run_in_threadpool(tv.tv_photo, src)
         return FileResponse(out, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
     return FileResponse(src, media_type=tv._content_type(src), headers={"Cache-Control": "no-store"})
+
+
+@app.get("/api/dlna")
+def dlna_status(user: User = Depends(admin_user)):
+    return dlna.status()
+
+
+@app.post("/api/dlna")
+async def dlna_switch(request: Request, user: User = Depends(admin_user)):
+    """Turn the TV media server (Family only) on or off. NAS Assistant restarts."""
+    (on,) = await _fields(request, "on")
+    info = await diskadmin._supervisor("GET", "/addons/self/info")
+    options = dict(info.get("options") or {})
+    options["dlna"] = on == "1"
+    await diskadmin._supervisor("POST", "/addons/self/options", {"options": options})
+    asyncio.get_running_loop().create_task(diskadmin._restart_soon())
+    return {"ok": True, "restarting": True}
 
 
 @app.get("/api/disk/roots")

@@ -1144,6 +1144,33 @@ async function renderDisks() {
   for (const disk of info.disks) page.append(diskCard(disk, info, { backup: taken("backup"), storage: taken("storage") }));
   for (const disk of info.away || []) page.append(awayCard(disk));
   page.append(el("p", "notice hint", t("diskNotListed")));
+  const tvCard = await dlnaCard();
+  if (tvCard && !stale(seq)) page.append(tvCard);
+}
+
+// TVs of the house: the DLNA media server, Family only, on or off.
+async function dlnaCard() {
+  let info;
+  try { info = await api("api/dlna"); } catch { return null; }
+  const node = el("section", "card disk-card-big");
+  const head = el("header", "card-head");
+  const appIcon = el("div", "app-icon");
+  appIcon.style.background = APP_COLORS.family || APP_COLORS.files;
+  appIcon.append(iconEl("tv"));
+  const titles = el("div", "card-titles");
+  titles.append(el("h2", "", t("dlnaTitle")),
+    el("div", "card-sub", t(!info.enabled ? "dlnaOff" : info.running ? "dlnaOn" : "dlnaStarting", { name: info.name })));
+  head.append(appIcon, titles);
+  const body = el("div", "card-body");
+  body.append(el("p", "card-sub", t("dlnaText")));
+  const actions = el("div", "part-actions");
+  const toggle = el("button", info.enabled ? "btn" : "btn primary", t(info.enabled ? "dlnaTurnOff" : "dlnaTurnOn"));
+  toggle.onclick = () => diskAction(t(info.enabled ? "dlnaConfirmOff" : "dlnaConfirmOn"),
+    () => post("api/dlna", { on: info.enabled ? "0" : "1" }));
+  actions.append(toggle);
+  body.append(actions);
+  node.append(head, body);
+  return node;
 }
 
 // A disk that had a role and is unplugged: it stays listed, and comes back by itself.

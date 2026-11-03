@@ -15,6 +15,8 @@ export NAS_ROOT=/nas
 export NAS_FAMILY_NAME="$(bashio::config 'family_folder_name')"
 export NAS_LOG_LEVEL="$(bashio::config 'log_level')"
 export NAS_TRASH_DAYS="$(bashio::config 'trash_days')"
+export NAS_DLNA=false
+if bashio::config.true 'dlna'; then export NAS_DLNA=true; fi
 export NAS_PUBLIC_URL=""
 if bashio::config.has_value 'public_url'; then export NAS_PUBLIC_URL="$(bashio::config 'public_url')"; fi
 mkdir -p "${NAS_ROOT}"

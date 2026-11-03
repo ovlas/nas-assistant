@@ -81,6 +81,18 @@ Apple TV, …: add its integration in Home Assistant first):
 - The TV gets a secret link that works for a few hours and **only on the home network**: links coming through a
   tunnel such as Cloudflare are refused. The TV fetches the file from port 8456 of Home Assistant.
 
+## TVs of the house (DLNA)
+
+On the Disks page, **TVs of the house → Turn on** shares the **Family** space with the smart TVs of the home
+network (Samsung, LG, Sony, Philips… anything with a DLNA / "Media server" source). The TV finds
+**NAS Assistant** among its sources and shows photos, videos and music with the remote, by folder or (photos) by
+date. It is read only, and private spaces are never shared: DLNA has no password, so anyone on the home Wi-Fi can
+see Family. Off by default.
+
+To be found by the TVs the add-on uses the host network (SSDP on UDP 1900, the media server on port 8200). The web
+UI and the API stay on port 8456, and other add-ons still reach it by its hostname (e.g. a Cloudflare Tunnel
+pointing to `http://<add-on hostname>:8456`).
+
 ## Other files on the disk
 
 A disk often holds more than NAS Assistant's folders: music, old photos, documents copied there over the years.
@@ -220,6 +232,7 @@ family/                           shared with everyone
 | `public_url` | Address of NAS Assistant from outside home (e.g. a Cloudflare Tunnel host), shown when you connect a phone. |
 | `trash_days` | Days an item stays in Recently deleted before it is erased for good (0 = never). |
 | `log_level` | Log detail. |
+| `dlna` | Share the Family space with the TVs of the house (also from the Disks page). |
 
 Port `8456` is used by the mobile apps (coming soon) on your home network or through Tailscale.
 

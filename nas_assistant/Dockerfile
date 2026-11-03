@@ -1,7 +1,7 @@
 ARG BUILD_FROM
 FROM ${BUILD_FROM}
 
-RUN apk add --no-cache util-linux e2fsprogs exfatprogs ntfs-3g jq ffmpeg
+RUN apk add --no-cache util-linux e2fsprogs exfatprogs ntfs-3g jq ffmpeg minidlna
 
 WORKDIR /opt/nas_assistant
 COPY app/requirements.txt app/requirements.txt
