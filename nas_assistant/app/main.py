@@ -26,7 +26,7 @@ import segno
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
 log = logging.getLogger("uvicorn.error")
-app = FastAPI(title="NAS Assistant", version="0.25.0")
+app = FastAPI(title="NAS Assistant", version="0.25.1")
 
 # Small boards: decode at most two big images at once. Waiting requests queue
 # here, outside the worker threads, so uploads and browsing never stall behind them.
@@ -680,6 +680,16 @@ def upload_session(user: User = Depends(current_user)):
     token = UPLOAD_PASS_PREFIX + secrets.token_urlsafe(24)
     _upload_passes[token] = (user, now + UPLOAD_PASS_SECONDS)
     return {"token": token, "lan": LAN_IP_URL, "public": PUBLIC_URL}
+
+
+@app.post("/api/upload/report")
+async def upload_report(request: Request, user: User = Depends(current_user)):
+    """A piece the browser couldn't send, and why: only the browser knows, the log shows it."""
+    form = await request.form()
+    log.warning("Upload piece failed for %s: %s at %s of %s by %s — %s | %s", user.name,
+                str(form.get("name", ""))[:120], form.get("offset", "?"), form.get("size", "?"),
+                str(form.get("route", ""))[:80], str(form.get("error", ""))[:200], str(form.get("agent", ""))[:160])
+    return {"ok": True}
 
 
 @app.get("/api/upload/ping")

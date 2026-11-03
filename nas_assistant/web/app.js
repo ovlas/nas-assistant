@@ -2001,6 +2001,13 @@ async function pickUploadRoute() {
   }
 }
 
+// Why a piece failed, told to the NAS (it shows in its log): only the browser knows it.
+function reportFailure(job, start, error) {
+  const route = uploads.base || "Ingress";
+  post("api/upload/report", { route, error: `${error.message} (${error.phase || "?"}, status ${error.status || 0})`,
+    name: job.name, offset: String(start), size: String(job.size), agent: navigator.userAgent }).catch(() => {});
+}
+
 // The upload pass expired (12 hours) or the add-on restarted: go on through Ingress.
 function passRefused(err) {
   if (err.status !== 401 || !uploads.pass) return false;
@@ -2017,17 +2024,27 @@ function directFailed() {
 
 const uploadHeaders = () => (uploads.pass ? { Authorization: `Bearer ${uploads.pass}` } : {});
 
+// A piece is "stuck" after 20 s without progress while it is being sent. Once all of it is
+// sent, the answer may take longer: through Ingress, Home Assistant first receives the
+// whole piece and only then hands it to the NAS. Then it waits up to 2 minutes.
+const ANSWER_MS = 120 * 1000;
+
 function putChunk(url, blob, onProgress) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     let last = Date.now();
+    let sent = false;
     const watchdog = setInterval(() => {
-      if (Date.now() - last > STALL_MS) xhr.abort();
+      if (Date.now() - last > (sent ? ANSWER_MS : STALL_MS)) xhr.abort();
     }, 5000);
-    const fail = (message, extra = {}) => { clearInterval(watchdog); reject(Object.assign(new Error(message), extra)); };
+    const fail = (message, extra = {}) => {
+      clearInterval(watchdog);
+      reject(Object.assign(new Error(message), { phase: sent ? "waiting for the answer" : "sending", ...extra }));
+    };
     xhr.open("PUT", url);
     for (const [key, value] of Object.entries(uploadHeaders())) xhr.setRequestHeader(key, value);
     xhr.upload.onprogress = (e) => { last = Date.now(); onProgress(e.loaded); };
+    xhr.upload.onload = () => { sent = true; last = Date.now(); };
     xhr.onload = () => {
       clearInterval(watchdog);
       let body = {};
@@ -2169,6 +2186,7 @@ async function sendPiece(job, piece, todo, failing) {
       releaseConnection();
     }
     job.inflight.delete(piece);
+    reportFailure(job, start, error);
     if (passRefused(error)) continue;
     if (error.permanent) throw error;
     directFailed();
