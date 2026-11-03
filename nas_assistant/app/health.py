@@ -27,6 +27,9 @@ _results: Dict[str, dict] = {}  # disk path -> last health
 _notified: Dict[str, str] = {}  # disk path -> state already notified
 
 
+_why: Dict[str, str] = {}  # device -> why it couldn't be read (for the log and the page)
+
+
 def _smartctl(device: str) -> Optional[dict]:
     """SMART data as JSON; tries the plain way, then through a USB-SATA bridge."""
     for extra in ([], ["-d", "sat"], ["-d", "sat,12"]):
@@ -34,10 +37,14 @@ def _smartctl(device: str) -> Optional[dict]:
             out = subprocess.run(["smartctl", "-j", "-H", "-A", "-i", *extra, device],
                                  capture_output=True, text=True, timeout=30).stdout
             data = json.loads(out or "{}")
-        except (OSError, ValueError, subprocess.TimeoutExpired):
+        except (OSError, ValueError, subprocess.TimeoutExpired) as err:
+            _why[device] = str(err)
             continue
         if "smart_status" in data or "nvme_smart_health_information_log" in data:
             return data
+        messages = (data.get("smartctl") or {}).get("messages") or []
+        _why[device] = "; ".join(m.get("string", "") for m in messages)[:300] or "no SMART data"
+    log.info("SMART of %s not readable: %s", device, _why.get(device))
     return None
 
 
@@ -80,6 +87,8 @@ def check(disks: List[str], partitions: Optional[Dict[str, List[str]]] = None) -
         nodes = [n for n in [device, *(partitions or {}).get(device, [])] if os.path.exists(n)]
         data = next((d for d in map(_smartctl, nodes) if d), None)
         result = assess(data)
+        if not data:
+            result["detail"] = next((_why[n] for n in nodes if n in _why), "device not available")
         result["checked"] = int(time.time())
         _results[device] = result
     return dict(_results)

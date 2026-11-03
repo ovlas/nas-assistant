@@ -1,5 +1,5 @@
 name: NAS Assistant
-version: "0.27.2"
+version: "0.27.3"
 slug: nas_assistant
 description: Your family cloud, at home. A private space for every Home Assistant user, on a disk you choose
 url: https://github.com/ovlas/nas-assistant
@@ -33,6 +33,9 @@ devices:
   - /dev/fuse
 privileged:
   - SYS_ADMIN
+  # Disk health: SMART goes through ATA pass-through commands, which Linux allows only
+  # with raw I/O rights (and only on the whole disks given in smart_devices).
+  - SYS_RAWIO
 apparmor: false
 # NAS data lives on the dedicated disk (/nas), never in /data:
 # Home Assistant backups stay small and on the main disk.
