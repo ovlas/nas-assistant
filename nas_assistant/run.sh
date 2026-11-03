@@ -29,6 +29,10 @@ export NAS_PUBLIC_URL=""
 if bashio::config.has_value 'public_url'; then export NAS_PUBLIC_URL="$(bashio::config 'public_url')"; fi
 mkdir -p "${NAS_ROOT}"
 
+# A disk Home Assistant hasn't given access to yet can't even be read: it must never look
+# like a disk with no filesystem (that would offer to initialize, i.e. erase, it).
+readable() { dd if="$1" of=/dev/null bs=4096 count=1 2>/dev/null; }
+
 if bashio::var.has_value "${DEVICE_OPTION}" || bashio::var.has_value "${DISK}"; then
     if bashio::var.has_value "${DEVICE_OPTION}"; then
         DEVICE="$(readlink -f "${DEVICE_OPTION}" || true)"
@@ -43,6 +47,9 @@ if bashio::var.has_value "${DEVICE_OPTION}" || bashio::var.has_value "${DISK}"; 
         bashio::log.info "Mounting ${DEVICE} on ${NAS_ROOT}"
         if nas-mount "${DEVICE}" "${NAS_ROOT}"; then
             export NAS_DISK_STATE=mounted
+        elif ! readable "${DEVICE}"; then
+            bashio::log.error "Can't open ${DEVICE} yet: NAS Assistant gets access to it and restarts."
+            export NAS_DISK_STATE=missing
         else
             # A new disk with no filesystem at all: offer to initialize it (only on the user's request).
             NAS_FSTYPE="$(blkid -p -s TYPE -o value "${DEVICE}" 2>/dev/null || true)"
@@ -81,6 +88,9 @@ mount_extra() {
             bashio::log.info "Mounting ${device} on ${target}"
             if nas-mount "${device}" "${target}"; then
                 state=mounted
+            elif ! readable "${device}"; then
+                bashio::log.error "Can't open ${device} yet: NAS Assistant gets access to it and restarts."
+                state=missing
             else
                 # A disk the NAS can't use as is (new, or e.g. formatted for a Mac): offer to initialize it.
                 fstype="$(blkid -p -s TYPE -o value "${device}" 2>/dev/null || true)"

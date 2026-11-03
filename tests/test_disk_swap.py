@@ -92,13 +92,16 @@ def test_a_disk_unplugged_while_off_never_blocks_the_start(supervisor):
     assert ha.options["device"] == nas and ha.options["storage_device"] == extra
 
 
-def test_no_restart_without_protection_mode(supervisor):
+def test_a_disk_given_back_always_restarts_once(supervisor):
+    """Even with protection mode off a disk can't be opened until Home Assistant grants it at start."""
     nas = SAMSUNG + "-part2"
     ha = supervisor({"device": nas, "smart_devices": []}, {SAMSUNG, nas}, protected=False)
     run(grants.on_stop())
     assert "device" not in ha.options
-    assert run(grants.on_start()) is False and ha.restarts == 0
+    assert run(grants.on_start()) is True and ha.restarts == 1
     assert ha.options["device"] == nas
+    run(grants.on_stop())  # the restart it asked for keeps the disk
+    assert run(grants.on_start()) is False and ha.restarts == 1
 
 
 def test_the_same_disk_never_has_two_roles(supervisor):
@@ -201,3 +204,12 @@ def test_halt_waits_for_the_tv_server_to_let_go(monkeypatch):
         return proc.returncode
     assert asyncio.run(go()) is not None
     assert dlna._halted
+
+
+def test_a_disk_that_cant_be_read_is_never_initialized(monkeypatch):
+    from fastapi import HTTPException
+    monkeypatch.setitem(diskadmin.ROLES, "storage", ("storage_device", "/dev/sdz9", "uninitialized", ""))
+    monkeypatch.setattr(diskadmin, "NAS_DEVICE", "/dev/sdy1")
+    monkeypatch.setattr(diskadmin, "_parent", lambda d: d[:-1])
+    with pytest.raises(HTTPException):
+        diskadmin._initialize("storage", disks.FORMAT_CONFIRM)

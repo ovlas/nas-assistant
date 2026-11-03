@@ -72,6 +72,14 @@ def _by_id() -> Dict[str, str]:
     return names
 
 
+def _can_read(device: str) -> bool:
+    try:
+        with open(device, "rb") as disk:
+            return len(disk.read(4096)) > 0
+    except OSError:
+        return False
+
+
 def _parent(node: str) -> str:
     result = subprocess.run(["lsblk", "-no", "PKNAME", node], capture_output=True, text=True)
     parent = result.stdout.strip().splitlines()[0] if result.stdout.strip() else ""
@@ -384,6 +392,9 @@ def _initialize(role: str, confirm: str) -> None:
     # Hard guards, independent of what the page shows.
     if role != "nas" and NAS_DEVICE and (os.path.realpath(device) == os.path.realpath(NAS_DEVICE)
                                          or _parent(device) == _parent(NAS_DEVICE)):
+        raise HTTPException(400, "Disk not selectable")
+    if not _can_read(device):
+        # Not even readable (no access yet, or a failing disk): "no filesystem" can't be told apart.
         raise HTTPException(400, "Disk not selectable")
     if role == "nas" and subprocess.run(["blkid", "-p", "-s", "TYPE", "-o", "value", device],
                                         capture_output=True, text=True).stdout.strip():

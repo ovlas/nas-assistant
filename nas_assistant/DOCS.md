@@ -162,8 +162,8 @@ NAS Assistant watches disks being plugged in and out:
   so it waits for your confirmation.
 - **Unplugged while NAS Assistant or Home Assistant is off**: NAS Assistant still starts. Home Assistant refuses to
   start an add-on whose options name a disk that isn't there, so NAS Assistant takes its disks out of the options when
-  it stops and gives back, when it starts, those that are plugged in (with protection mode on it then restarts once,
-  a few seconds). The disks themselves stay chosen: one that comes back is used again on its own.
+  it stops and gives back, when it starts, those that are plugged in (it then restarts once, a few seconds:
+  Home Assistant grants a disk only when the add-on starts). The disks themselves stay chosen: one that comes back is used again on its own.
 - **Changing the NAS disk** yourself: while no NAS disk is connected, the start page lists the other disks with
   **Use as the NAS disk**, used as they are. The old disk's files come back when you switch back to it.
 - Every disk has one role: a disk in use as extra storage or for backups is never taken as the NAS disk.

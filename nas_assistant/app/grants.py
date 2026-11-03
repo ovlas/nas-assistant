@@ -6,9 +6,9 @@ and refuses to start it if one is not plugged in. So the disks chosen here are k
 
 - on stop, the disks leave the options: a disk unplugged while NAS Assistant is off
   (or while the house is restarting) can't block it;
-- on start, the chosen disks that are plugged in go back in the options. With protection
-  mode on, Home Assistant gives access to a disk only when the add-on starts, so it then
-  restarts once to get them; with protection mode off it already sees every disk.
+- on start, the chosen disks that are plugged in go back in the options. Home Assistant
+  gives access to a disk only when the add-on starts (with protection mode off too: the
+  disk is listed but can't be opened), so it then restarts once to get them.
 
 Unplug any disk whenever you like, plug it back in: it is used again on its own.
 """
@@ -127,8 +127,7 @@ async def on_start() -> bool:
         log.warning("Can't give the disks back: %s", err)
         return False
     added = {k: v for k, v in wanted.items() if v and current.get(k) != v}
-    # With protection mode off the add-on already sees every disk: nothing to wait for.
-    if not added or not info.get("protected", True):
+    if not added:
         return False
     log.info("Getting access to the disks again: restarting once")
     keep_on_next_stop()
