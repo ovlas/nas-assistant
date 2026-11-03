@@ -112,3 +112,24 @@ def test_the_gallery_comes_in_pages_with_month_counts(client, alice):
     assert len(names) == first["total"] == len(set(names))  # every item once, none lost between pages
     taken = [i["taken"] for i in first["items"] + rest["items"]]
     assert taken == sorted(taken, reverse=True)  # newest first
+
+
+def test_small_files_go_many_at_a_time_whole_and_never_overwriting(client, alice):
+    import json
+    files = {f"s_{i:03d}.txt": os.urandom(100 + i) for i in range(120)}
+    items = [{"field": f"f{i}", "name": n, "path": "Batch/Sub", "size": len(d)} for i, (n, d) in enumerate(files.items())]
+    items.append({"field": "short", "name": "short.txt", "path": "Batch/Sub", "size": 999})  # arrives cut
+    upload = [(f"f{i}", (n, d)) for i, (n, d) in enumerate(files.items())] + [("short", ("short.txt", b"abc"))]
+    r = client.post("/api/upload/batch", headers=alice, files=upload, data={"space": "personal", "items": json.dumps(items)})
+    results = r.json()["results"]
+    assert [x["state"] for x in results[:-1]] == ["done"] * 120 and results[-1]["state"] == "failed"
+    folder = NAS / "users" / "alice1" / "Batch" / "Sub"
+    assert all((folder / n).read_bytes() == d for n, d in files.items())
+    assert not (folder / "short.txt").exists()
+    again = client.post("/api/upload/batch", headers=alice, files=upload[:5],
+                        data={"space": "personal", "items": json.dumps(items[:5])}).json()["results"]
+    assert [x["state"] for x in again] == ["skipped"] * 5
+    other = [("f0", ("s_000.txt", b"a different file"))]
+    changed = client.post("/api/upload/batch", headers=alice, files=other, data={"space": "personal", "items": json.dumps(
+        [{"field": "f0", "name": "s_000.txt", "path": "Batch/Sub", "size": 16}])}).json()["results"][0]
+    assert changed == {"state": "done", "name": "s_000 (2).txt"} and (folder / "s_000.txt").read_bytes() == files["s_000.txt"]

@@ -65,6 +65,8 @@ what is left, speed and time left, and how many files are uploaded, already ther
 - Big files travel in 8 MB pieces, several at the same time over separate connections; the NAS puts each piece
   where it belongs and keeps everything that arrived, even of a piece cut half way. A frozen connection only delays
   its own piece. Three files go at once.
+- Small files (up to 2 MB) go many at a time: up to 300 of them in one request, so a folder of thousands of tiny
+  files (a Mac app, a code project) uploads in seconds.
 - A file appears only when every byte has arrived: the NAS checks its exact size first, so a file is never "uploaded"
   half way.
 - When the connection drops, only what is missing is sent again, for up to 10 minutes per file. A locked phone or a background tab

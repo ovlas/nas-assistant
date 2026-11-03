@@ -2377,11 +2377,108 @@ const sameTarget = (a, b) => a.space === b.space && a.path === b.path && a.origi
 const nextJob = () => uploads.jobs.find((j) => j.state === "waiting"
   && !uploads.jobs.some((o) => o.state === "uploading" && sameTarget(o, j)));
 
+// Small files go many at a time, in one request (see /api/upload/batch): with thousands of
+// tiny files (a Mac app, a code folder) the trips back and forth cost more than the bytes.
+const SMALL_FILE = 2 * 1024 * 1024;
+const BATCH_FILES = 300;
+const BATCH_BYTES = 8 * 1024 * 1024;
+
+function takeBatch(first) {
+  const batch = [first];
+  let bytes = first.size;
+  const taken = new Set([`${first.space}|${first.path}|${first.original}`]);
+  for (const job of uploads.jobs) {
+    if (batch.length >= BATCH_FILES || bytes >= BATCH_BYTES) break;
+    const key = `${job.space}|${job.path}|${job.original}`;
+    if (job === first || job.state !== "waiting" || job.noBatch || job.size === 0 || job.size > SMALL_FILE
+        || job.space !== first.space || taken.has(key) || bytes + job.size > BATCH_BYTES
+        || uploads.jobs.some((o) => o.state === "uploading" && sameTarget(o, job))) continue;
+    taken.add(key);
+    job.state = "uploading";
+    batch.push(job);
+    bytes += job.size;
+  }
+  return batch;
+}
+
+function postForm(url, form, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    let last = Date.now();
+    let sent = false;
+    const watchdog = setInterval(() => { if (Date.now() - last > (sent ? ANSWER_MS : STALL_MS)) xhr.abort(); }, 5000);
+    const fail = (message, extra = {}) => { clearInterval(watchdog); reject(Object.assign(new Error(message), extra)); };
+    xhr.open("POST", url);
+    xhr.upload.onprogress = (e) => { last = Date.now(); onProgress(e.loaded, e.total); };
+    xhr.upload.onload = () => { sent = true; last = Date.now(); };
+    xhr.onload = () => {
+      clearInterval(watchdog);
+      let body = {};
+      try { body = JSON.parse(xhr.responseText || "{}"); } catch { /* not JSON */ }
+      if (xhr.status < 300) return resolve(body);
+      fail(typeof body.detail === "string" ? tError(body.detail) : t("httpError", { status: xhr.status }),
+        { status: xhr.status, permanent: xhr.status >= 400 && xhr.status < 500 && ![401, 408, 429].includes(xhr.status) });
+    };
+    xhr.onerror = () => fail(t("connectionLost"));
+    xhr.onabort = () => fail(t("connectionStalled"));
+    xhr.send(form);
+  });
+}
+
+async function uploadBatch(batch) {
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    const form = new FormData();
+    if (uploads.pass) form.append("pass", uploads.pass);  // in the form, not a header: no preflight
+    form.append("space", batch[0].space);
+    form.append("items", JSON.stringify(batch.map((job, i) => ({ field: `f${i}`, name: job.name, path: job.path, size: job.size }))));
+    batch.forEach((job, i) => form.append(`f${i}`, job.file, job.name));
+    const total = batch.reduce((n, j) => n + j.size, 0) || 1;
+    await takeConnection();
+    try {
+      const { results } = await postForm(`${uploads.base ? uploads.base + "/" : ""}api/upload/batch`, form, (loaded, size) => {
+        const share = Math.min(1, loaded / (size || total));
+        for (const job of batch) job.sent = Math.floor(job.size * share);
+        paintUploads();
+      });
+      batch.forEach((job, i) => {
+        const result = results[i] || { state: "failed", error: "missing" };
+        job.name = result.name || job.name;
+        job.sent = job.size;
+        if (result.state === "failed") { job.state = "waiting"; job.noBatch = true; }  // once more, on its own
+        else job.state = result.state;
+      });
+      uploads.directFailures = 0;
+      setUploadStatus("");
+      return;
+    } catch (err) {
+      reportFailure(batch[0], 0, err);
+      if (!passRefused(err)) directFailed();
+      if (err.permanent) break;
+      await waitToRetry(attempt);
+    } finally {
+      releaseConnection();
+    }
+  }
+  // The batch way keeps failing: each file goes on its own (the usual, patient way).
+  for (const job of batch) Object.assign(job, { state: "waiting", noBatch: true, sent: 0 });
+}
+
 async function uploadLane() {
   let job;
   while ((job = nextJob()) || uploads.jobs.some((j) => j.state === "waiting")) {
     if (!job) { await sleep(500); continue; }  // only same-name files left: wait for their twin
     job.state = "uploading";  // taken by this lane before any await
+    if (job.size > 0 && job.size <= SMALL_FILE && !job.noBatch) {
+      if (!uploads.base && !uploads.picking) {
+        uploads.picking = true;
+        await pickUploadRoute();
+        uploads.picking = false;
+      }
+      await uploadBatch(takeBatch(job));
+      saveQueue();
+      paintUploads();
+      continue;
+    }
     // Back on Ingress after a hiccup (e.g. NAS Assistant restarting): try the direct way again.
     if (!uploads.base && !uploads.picking) {
       uploads.picking = true;

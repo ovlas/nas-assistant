@@ -2,6 +2,7 @@ import asyncio
 import logging
 import errno
 import io
+import json
 import os
 import secrets
 import shutil
@@ -26,7 +27,7 @@ import segno
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
 log = logging.getLogger("uvicorn.error")
-app = FastAPI(title="NAS Assistant", version="0.27.4")
+app = FastAPI(title="NAS Assistant", version="0.28.0")
 
 # Small boards: decode at most two big images at once. Waiting requests queue
 # here, outside the worker threads, so uploads and browsing never stall behind them.
@@ -675,7 +676,7 @@ def upload(
 UPLOAD_PASS_PREFIX = "upl_"
 UPLOAD_PASS_SECONDS = 12 * 3600
 _upload_passes: Dict[str, tuple] = {}  # pass -> (user, expires)
-UPLOAD_PATHS = ("/api/upload", "/api/upload/ping")
+UPLOAD_PATHS = ("/api/upload", "/api/upload/ping", "/api/upload/batch")
 
 
 @app.middleware("http")
@@ -685,7 +686,7 @@ async def upload_cors(request: Request, call_next):
     if request.url.path not in UPLOAD_PATHS:
         return await call_next(request)
     headers = {"Access-Control-Allow-Origin": request.headers.get("origin", "*"),
-               "Access-Control-Allow-Methods": "GET, PUT",
+               "Access-Control-Allow-Methods": "GET, PUT, POST",
                "Access-Control-Allow-Headers": "Authorization, Content-Type",
                "Access-Control-Allow-Private-Network": "true",
                "Access-Control-Max-Age": "600", "Vary": "Origin"}
@@ -705,6 +706,65 @@ async def web_uploader(request: Request) -> User:
             raise HTTPException(401, "Not authorized")
         return entry[0]
     return await current_user(request)
+
+
+# Small files go many at a time: one request for up to a few hundred of them, instead of
+# four round trips each (is it there? two browser checks, the file). A multipart POST
+# with the pass in the form is a "simple" request: no preflight check before it either.
+BATCH_MAX_FILES = 300
+
+
+def _store_small(user: User, space: str, item: dict, upload) -> dict:
+    name, path, size = str(item.get("name", "")), str(item.get("path", "")), int(item.get("size", -1))
+    plan = storage.upload_plan(user, space, path, name, size)
+    if plan["complete"]:
+        return {"state": "skipped", "name": plan["name"]}
+    partial, target = storage.chunk_targets(user, space, path, plan["name"])
+    with open(partial, "wb") as out:
+        shutil.copyfileobj(upload.file, out, 1024 * 1024)
+    if partial.stat().st_size != size:  # never keep a file that isn't whole
+        partial.unlink(missing_ok=True)
+        return {"state": "failed", "error": "incomplete"}
+    os.replace(partial, target)
+    pieces.forget(partial)
+    return {"state": "done", "name": target.name}
+
+
+@app.post("/api/upload/batch")
+async def upload_batch(request: Request):
+    form = await request.form(max_files=BATCH_MAX_FILES, max_fields=BATCH_MAX_FILES + 10)
+    token = str(form.get("pass") or "")
+    if token.startswith(UPLOAD_PASS_PREFIX):
+        entry = _upload_passes.get(token)
+        if not entry or entry[1] < time.time():
+            raise HTTPException(401, "Not authorized")
+        user = entry[0]
+    else:
+        user = await current_user(request)
+    space = str(form.get("space") or "")
+    try:
+        items = json.loads(str(form.get("items") or "[]"))
+    except ValueError:
+        raise HTTPException(422, "Required fields: items")
+    started = time.monotonic()
+    results = []
+    for item in items[:BATCH_MAX_FILES]:
+        upload = form.get(str(item.get("field", "")))
+        if upload is None or isinstance(upload, str):
+            results.append({"state": "failed", "error": "missing"})
+            continue
+        try:
+            results.append(await run_in_threadpool(_store_small, user, space, item, upload))
+        except HTTPException as err:
+            results.append({"state": "failed", "error": tr_detail(err.detail)})
+    stored = sum(1 for r in results if r["state"] == "done")
+    log.info("Uploaded %d small files in one go (%d already there) in %.1f s from %s", stored,
+             sum(1 for r in results if r["state"] == "skipped"), time.monotonic() - started, _route(request))
+    return {"results": results}
+
+
+def tr_detail(detail) -> str:
+    return detail if isinstance(detail, str) else "failed"
 
 
 @app.post("/api/upload/session")
