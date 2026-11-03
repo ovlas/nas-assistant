@@ -26,7 +26,7 @@ import segno
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
 log = logging.getLogger("uvicorn.error")
-app = FastAPI(title="NAS Assistant", version="0.25.1")
+app = FastAPI(title="NAS Assistant", version="0.26.0")
 
 # Small boards: decode at most two big images at once. Waiting requests queue
 # here, outside the worker threads, so uploads and browsing never stall behind them.
@@ -525,11 +525,10 @@ def home(user: User = Depends(current_user)):
     """Everything the welcome page shows, in one request."""
     photos = media.gallery(user, "personal")
     favs = favorites.paths(user, "personal")
-    for item in photos[:8]:
-        item["fav"] = item["path"] in favs
+    recent = [{**item, "fav": item["path"] in favs} for item in photos[:8]]  # the list is shared: copies
     images = sum(1 for p in photos if p["kind"] == "image")
     return {
-        "photos": {"images": images, "videos": len(photos) - images, "recent": photos[:8]},
+        "photos": {"images": images, "videos": len(photos) - images, "recent": recent},
         # Photos and videos have their own card.
         "recent": storage.recent_files(user, "personal", 8, skip_kinds=("image", "video")),
         "family": storage.recent_files(user, "family", 5),
@@ -592,12 +591,26 @@ def remove_from_collection(id: str, space: str, path: str, user: User = Depends(
 
 
 @app.get("/api/photos")
-def photos(space: str = "personal", user: User = Depends(current_user)):
+def photos(space: str = "personal", offset: int = 0, limit: int = 0, favorite: bool = False,
+           user: User = Depends(current_user)):
+    """The gallery, newest first. With `limit`, one page of it (the page asks for more while
+    scrolling); the first page also says how many items each month has."""
     items = media.gallery(user, space)
     favs = favorites.paths(user, space)
-    for item in items:
-        item["fav"] = item["path"] in favs
-    return {"space": space, "items": items}
+    if favorite:
+        items = [i for i in items if i["path"] in favs]
+    page = items[offset:offset + limit] if limit else items
+    result = {"space": space, "items": [{**i, "fav": i["path"] in favs} for i in page],
+              "offset": offset, "total": len(items)}
+    if not offset:
+        images = sum(1 for i in items if i["kind"] == "image")
+        months: Dict[str, int] = {}
+        for i in items:
+            month = time.strftime("%Y-%m", time.gmtime(i["taken"]))
+            months[month] = months.get(month, 0) + 1
+        result.update({"images": images, "videos": len(items) - images, "months": months})
+        media.prepare_thumbs(user, space)  # the next tiles are ready before they're shown
+    return result
 
 
 @app.get("/api/thumb")

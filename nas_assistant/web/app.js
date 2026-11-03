@@ -247,52 +247,87 @@ function render() {
 
 // --- Gallery ------------------------------------------------------------------
 
+// The gallery comes a page at a time (a library can hold tens of thousands of photos):
+// the newest months first, the next page when the end of the page gets close.
+const GALLERY_PAGE = 300;
+const monthKey = (taken) => new Date(taken * 1000).toISOString().slice(0, 7);  // as the NAS counts them (UTC)
+const monthTitle = (key) => capitalize(new Intl.DateTimeFormat(LOCALE, { month: "long", year: "numeric", timeZone: "UTC" })
+  .format(new Date(`${key}-15T00:00:00Z`)));
+
 async function renderGallery() {
   const where = t(state.space === "personal" ? "mySpace" : "family");
   setHeader(t(state.space === "personal" ? "photos" : "familyPhotos"), where);
   const seq = renderSeq;
-  let items;
+  const query = (offset) => `api/photos?${qs({ space: state.space, offset, limit: GALLERY_PAGE,
+    ...(state.kind === "favorite" ? { favorite: 1 } : {}) })}`;
+  let first;
   try {
-    ({ items } = await api(`api/photos?${qs({ space: state.space })}`));
+    first = await api(query(0));
   } catch (err) {
     return stale(seq) || showEmpty(t("photosLoadError"), err.message);
   }
   if (stale(seq)) return;
   renderChips(GALLERY_FILTERS);
-  if (state.openPath) {
-    const index = items.findIndex((i) => i.path === state.openPath);
-    state.openPath = null;
-    if (index >= 0) setTimeout(() => openViewer(index));
-  }
-  if (state.kind === "favorite") items = items.filter((i) => i.fav);
-  state.items = items;
-  $("tv-btn").hidden = !items.length;
-  const photos = items.filter((i) => i.kind === "image").length;
-  const videos = items.length - photos;
+  state.items = [];
+  $("tv-btn").hidden = !first.total;
   setHeader($("title").textContent,
-    [where, t("photoCount", { n: photos }), videos ? t("videoCount", { n: videos }) : ""].filter(Boolean).join(" · "));
-  if (!items.length) {
+    [where, t("photoCount", { n: first.images }), first.videos ? t("videoCount", { n: first.videos }) : ""].filter(Boolean).join(" · "));
+  if (!first.total) {
     return state.kind === "favorite"
       ? showEmpty(t("noFavTitle"), t("noFavText"))
       : showEmpty(t("noPhotosTitle"), t("noPhotosText"));
   }
 
   const gallery = $("gallery");
-  let section, tiles, currentMonth;
-  items.forEach((item, index) => {
-    const month = capitalize(monthFmt.format(item.taken * 1000));
-    if (month !== currentMonth) {
-      currentMonth = month;
-      section = el("section", "month");
-      const h2 = el("h2", "", month);
-      h2.append(el("span"));
-      tiles = el("div", "tiles");
-      section.append(h2, tiles);
-      gallery.append(section);
+  const sections = new Map();
+  const add = (items) => {
+    for (const item of items) {
+      const key = monthKey(item.taken);
+      let tiles = sections.get(key);
+      if (!tiles) {
+        const section = el("section", "month");
+        const h2 = el("h2", "", monthTitle(key));
+        h2.append(el("span", "", String(first.months[key] || "")));
+        tiles = el("div", "tiles");
+        section.append(h2, tiles);
+        gallery.insertBefore(section, sentinel);
+        sections.set(key, tiles);
+      }
+      state.items.push(item);
+      tiles.append(tile(item, state.items.length - 1));
     }
-    section.querySelector("h2 span").textContent = `${tiles.children.length + 1}`;
-    tiles.append(tile(item, index));
-  });
+  };
+  const sentinel = el("div", "gallery-more");
+  gallery.append(sentinel);
+  add(first.items);
+
+  let loading = false;
+  const more = async () => {
+    if (loading || stale(seq) || state.items.length >= first.total) return false;
+    loading = true;
+    try {
+      const page = await api(query(state.items.length));
+      if (!stale(seq)) add(page.items);
+    } catch { /* try again on the next scroll */ }
+    loading = false;
+    return !stale(seq) && state.items.length < first.total;
+  };
+  // Load ahead: the next page starts when the end is still a few screens away.
+  const watcher = new IntersectionObserver(async (entries) => {
+    if (!entries.some((e) => e.isIntersecting)) return;
+    while (await more() && sentinel.getBoundingClientRect().top < innerHeight * 3) { /* fill the screen */ }
+    if (stale(seq) || state.items.length >= first.total) watcher.disconnect();
+  }, { rootMargin: "2500px 0px" });
+  watcher.observe(sentinel);
+
+  // Opened from Home on a given photo: load pages until it's there.
+  if (state.openPath) {
+    const wanted = state.openPath;
+    state.openPath = null;
+    let index = state.items.findIndex((i) => i.path === wanted);
+    for (let n = 0; index < 0 && n < 30 && await more(); n++) index = state.items.findIndex((i) => i.path === wanted);
+    if (index >= 0) setTimeout(() => openViewer(index));
+  }
 }
 
 function tile(item, index) {

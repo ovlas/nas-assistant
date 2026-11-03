@@ -10,6 +10,7 @@ import os
 import sqlite3
 import subprocess
 import threading
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -178,7 +179,26 @@ def with_created(entries: List[dict]) -> List[dict]:
     return entries
 
 
+# The gallery list of a space is kept a few seconds: the page asks for it a page at a time.
+GALLERY_SECONDS = 20
+_galleries: Dict[tuple, tuple] = {}  # (user, space) -> (when, items, full paths)
+
+
 def gallery(user: User, space: str) -> List[dict]:
+    """Every photo and video of a space, newest first (items are shared: don't change them)."""
+    return _gallery(user, space)[0]
+
+
+def _gallery(user: User, space: str) -> tuple:
+    cached = _galleries.get((user.id, space))
+    if cached and time.monotonic() - cached[0] < GALLERY_SECONDS:
+        return cached[1], cached[2]
+    items, fulls = _scan_gallery(user, space)
+    _galleries[(user.id, space)] = (time.monotonic(), items, fulls)
+    return items, fulls
+
+
+def _scan_gallery(user: User, space: str) -> tuple:
     conn = _db()
     try:
         prefixes = tuple(str(root) + os.sep for _, root in storage.roots(user, space))
@@ -199,14 +219,14 @@ def gallery(user: User, space: str) -> List[dict]:
             else:
                 taken = mtime_ns // 10**9  # until the background reads the real date
                 _index_later(key, kind, mtime_ns, size)
-            items.append({
+            items.append(({
                 "path": rel,
                 "name": name,
                 "kind": kind,
                 "taken": taken,
                 "size": size,
                 "v": mtime_ns,
-            })
+            }, key))
         # Forget files that were deleted or moved.
         gone = [(path,) for path in known if path not in seen]
         if gone:
@@ -214,5 +234,47 @@ def gallery(user: User, space: str) -> List[dict]:
             conn.commit()
     finally:
         conn.close()
-    items.sort(key=lambda i: i["taken"], reverse=True)
-    return items
+    items.sort(key=lambda pair: pair[0]["taken"], reverse=True)
+    return [item for item, _ in items], [full for _, full in items]
+
+
+# --- Thumbnails made ahead --------------------------------------------------------
+#
+# Making a thumbnail means reading the whole photo (from a USB disk, maybe) and decoding it
+# (HEIC is slow): done when the gallery shows it, the page waits. So when a gallery is
+# opened, its thumbnails are made in the background, newest first, one at a time.
+
+_ahead: List[str] = []
+_ahead_known: set = set()
+_ahead_lock = threading.Lock()
+_ahead_worker: Optional[threading.Thread] = None
+
+
+def prepare_thumbs(user: User, space: str) -> None:
+    global _ahead_worker
+    _, fulls = _gallery(user, space)
+    with _ahead_lock:
+        fresh = [f for f in fulls if f not in _ahead_known]
+        _ahead_known.update(fresh)
+        _ahead.extend(fresh)
+        if _ahead and _ahead_worker is None:
+            _ahead_worker = threading.Thread(target=_make_ahead, daemon=True)
+            _ahead_worker.start()
+
+
+def _make_ahead() -> None:
+    global _ahead_worker
+    while True:
+        with _ahead_lock:
+            if not _ahead:
+                _ahead_worker = None
+                return
+            full = _ahead.pop(0)
+        try:
+            src = Path(full)
+            out = thumb_path(src, "s")
+            if not out.exists():
+                make_thumbnail(src, "s", out)
+                time.sleep(0.02)  # leave room for the pages being browsed
+        except Exception:  # a file gone or unreadable: skip it
+            continue

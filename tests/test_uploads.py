@@ -95,3 +95,20 @@ def test_bad_names_are_refused(client, alice):
                        params={"space": "personal", "name": name, "offset": 0, "size": 1, "piece": 1})
         assert r.status_code in (400, 422), name
     assert not list(NAS.rglob("escape.txt"))
+
+
+def test_the_gallery_comes_in_pages_with_month_counts(client, alice):
+    import time as clock
+    folder = NAS / "users" / "alice1" / "Foto"
+    folder.mkdir(parents=True, exist_ok=True)
+    for i in range(25):
+        (folder / f"P_{i:02d}.jpg").write_bytes(b"x")
+        stamp = clock.time() - i * 40 * 86400
+        os.utime(folder / f"P_{i:02d}.jpg", (stamp, stamp))
+    first = client.get("/api/photos", headers=alice, params={"space": "personal", "offset": 0, "limit": 10}).json()
+    assert len(first["items"]) == 10 and first["total"] >= 25 and sum(first["months"].values()) == first["total"]
+    rest = client.get("/api/photos", headers=alice, params={"space": "personal", "offset": 10, "limit": 1000}).json()
+    names = [i["name"] for i in first["items"] + rest["items"]]
+    assert len(names) == first["total"] == len(set(names))  # every item once, none lost between pages
+    taken = [i["taken"] for i in first["items"] + rest["items"]]
+    assert taken == sorted(taken, reverse=True)  # newest first
