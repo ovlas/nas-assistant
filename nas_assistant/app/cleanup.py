@@ -15,6 +15,7 @@ Nothing is deleted here: the page moves what the user picks to Recently deleted.
 """
 
 import hashlib
+import logging
 import os
 import sqlite3
 import threading
@@ -28,7 +29,10 @@ from . import media, storage
 from .auth import User
 from .kinds import media_kind
 
+log = logging.getLogger("uvicorn.error")
+
 QUICK_BYTES = 64 * 1024
+SLOW_READ = 3  # seconds: a read this slow is logged (a failing or overloaded disk)
 SIMILAR_BITS = 6  # at most this many of the 64 bits differ
 MAX_GROUPS = 500
 _scans: Dict[Tuple[str, str], dict] = {}  # (user, space) -> state and results
@@ -82,11 +86,27 @@ def _dhash(path: str) -> Optional[int]:
     return bits - (1 << 63)  # SQLite integers are signed
 
 
+def _timed(scan: dict, read, path: str, *args):
+    """Run a read and note how long it took, per disk: a slow disk shows up in the numbers."""
+    disk = next((str(root) for root in scan["roots"] if path.startswith(str(root) + os.sep)), "?")
+    began = time.monotonic()
+    try:
+        return read(path, *args)
+    finally:
+        took = time.monotonic() - began
+        stats = scan["disks"].setdefault(disk, {"reads": 0, "seconds": 0.0, "slow": 0})
+        stats["reads"] += 1
+        stats["seconds"] = round(stats["seconds"] + took, 2)
+        if took >= SLOW_READ:
+            stats["slow"] += 1
+            log.warning("Cleanup: reading %s took %.1f s", os.path.relpath(path, disk), took)
+
+
 def status(user: User, space: str) -> dict:
     scan = _scans.get((user.id, space))
     if not scan:
         return {"state": "idle"}
-    return {k: v for k, v in scan.items() if k != "thread"}
+    return {k: v for k, v in scan.items() if k not in ("thread", "roots")}
 
 
 def start(user: User, space: str) -> dict:
@@ -95,7 +115,8 @@ def start(user: User, space: str) -> dict:
         scan = _scans.get(key)
         if scan and scan["state"] == "scanning":
             return status(user, space)
-        _scans[key] = {"state": "scanning", "phase": "listing", "done": 0, "total": 0, "started": time.time()}
+        _scans[key] = {"state": "scanning", "phase": "listing", "done": 0, "total": 0, "started": time.time(),
+                         "roots": [str(r) for r in storage.disk_roots()], "disks": {}}
         threading.Thread(target=_scan, args=(user, space), daemon=True).start()
     return status(user, space)
 
@@ -153,7 +174,7 @@ def _duplicates(files, known, conn, scan) -> List[dict]:
             quick = _cached(known, path, mtime, size, 2)
             if not quick:
                 try:
-                    quick = _quick(path, size)
+                    quick = _timed(scan, _quick, path, size)
                 except OSError:
                     continue
                 _remember(conn, known, path, mtime, size, quick=quick)
@@ -165,7 +186,7 @@ def _duplicates(files, known, conn, scan) -> List[dict]:
                 full = _cached(known, path, mtime, size, 3) if size > 2 * QUICK_BYTES else "small"
                 if not full:
                     try:
-                        full = _full(path)
+                        full = _timed(scan, _full, path)
                     except OSError:
                         continue
                     _remember(conn, known, path, mtime, size, full=full)
@@ -187,7 +208,7 @@ def _similar(files, known, conn, scan, duplicates) -> List[dict]:
     for path, rel, size, mtime in photos:
         value = _cached(known, path, mtime, size, 4)
         if value is None:
-            value = _dhash(path)
+            value = _timed(scan, _dhash, path)
             if value is None:
                 scan["done"] += 1
                 continue
