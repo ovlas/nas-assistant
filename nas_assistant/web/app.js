@@ -28,6 +28,7 @@ const ICON_PATHS = {
   plus: '<path d="M12 5v14M5 12h14"/>',
   upload: '<path d="M12 16V4M7.5 8.5 12 4l4.5 4.5M4.5 15v2.5A2.5 2.5 0 0 0 7 20h10a2.5 2.5 0 0 0 2.5-2.5V15"/>',
   download: '<path d="M12 4v12M7.5 11.5 12 16l4.5-4.5M4.5 15v2.5A2.5 2.5 0 0 0 7 20h10a2.5 2.5 0 0 0 2.5-2.5V15"/>',
+  sparkle: '<path d="M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9L12 17.5l-1.9-5.1L5 10.5l5.1-1.9z"/><path d="M18.5 15.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/>',
   trash: '<path d="M4.5 6.5h15M9.5 6.5V4.8c0-.7.5-1.3 1.2-1.3h2.6c.7 0 1.2.6 1.2 1.3v1.7M6.5 6.5l.8 12.2c.1 1 .9 1.8 1.9 1.8h5.6c1 0 1.8-.8 1.9-1.8l.8-12.2"/>',
   close: '<path d="M6 6l12 12M18 6 6 18"/>',
   blank: '',
@@ -205,7 +206,7 @@ function setHeader(title, subtitle) {
   $("new-folder").hidden = state.view !== "files";
   $("layout-switch").hidden = state.view !== "files";
   document.querySelectorAll("#layout-switch button").forEach((b) => b.classList.toggle("active", b.dataset.layout === state.layout));
-  $("upload-btn").hidden = ["trash", "disks", "collections", "collection"].includes(state.view) || isDisk(state.space);
+  $("upload-btn").hidden = ["trash", "disks", "collections", "collection", "cleanup"].includes(state.view) || isDisk(state.space);
   $("folder-btn").hidden = $("upload-btn").hidden || state.view !== "files";
   $("empty-trash").hidden = true;
   $("tv-btn").hidden = true;  // shown by the photo views once they have items
@@ -234,6 +235,8 @@ function render() {
   $("disks").hidden = state.view !== "disks";
   $("collections").replaceChildren();
   $("collections").hidden = state.view !== "collections";
+  $("cleanup").replaceChildren();
+  $("cleanup").hidden = state.view !== "cleanup";
   showEmpty(null);
   document.body.classList.toggle("on-home", state.view === "home");
   $("home").hidden = state.view !== "home";
@@ -242,6 +245,7 @@ function render() {
   if (state.view === "collections") return renderCollections();
   if (state.view === "collection") return renderCollection();
   if (state.view === "trash") return renderTrash();
+  if (state.view === "cleanup") return renderCleanup();
   return state.view === "photos" ? renderGallery() : renderFiles();
 }
 
@@ -1467,6 +1471,149 @@ try { setCollapsed(localStorage.getItem("nas-sidebar") === "collapsed"); } catch
 $("collapse").onclick = () => setCollapsed(!document.body.classList.contains("nav-collapsed"));
 
 // --- Recently deleted ---------------------------------------------------------
+
+// --- Cleanup: duplicates and similar photos ------------------------------------------
+
+const cleanupState = { space: "personal", picked: new Set() };
+
+async function renderCleanup() {
+  setHeader(t("cleanup"), t("cleanupSub"));
+  const seq = renderSeq;
+  const page = $("cleanup");
+  let info;
+  try {
+    info = await api(`api/cleanup?${qs({ space: cleanupState.space })}`);
+  } catch (err) {
+    return stale(seq) || showEmpty(t("cleanupError"), err.message);
+  }
+  if (stale(seq)) return;
+  page.replaceChildren();
+
+  const spaces = el("div", "segmented");
+  for (const space of ["personal", "family"]) {
+    const b = el("button", space === cleanupState.space ? "active" : "", t(space === "personal" ? "mySpace" : "family"));
+    b.onclick = () => { cleanupState.space = space; cleanupState.picked.clear(); cleanupState.ready = false; render(); };
+    spaces.append(b);
+  }
+  const scan = el("button", "btn primary", t(info.state === "ready" ? "cleanupScanAgain" : "cleanupScan"));
+  scan.onclick = async () => {
+    cleanupState.ready = false;
+    await post("api/cleanup/scan", { space: cleanupState.space });
+    render();
+  };
+  const top = el("div", "cleanup-top");
+  top.append(spaces, scan);
+  page.append(top);
+
+  if (info.state === "idle") {
+    page.append(el("p", "card-sub", t("cleanupIntro")));
+    return;
+  }
+  if (info.state === "scanning") {
+    scan.disabled = true;
+    const part = info.total ? Math.floor((info.done / info.total) * 100) : 0;
+    const bar = el("div", "bar");
+    const fill = el("div", "bar-fill");
+    fill.style.width = `${part}%`;
+    bar.append(fill);
+    page.append(el("p", "card-sub", t(`cleanupPhase_${info.phase || "listing"}`, { done: info.done, total: info.total })), bar);
+    setTimeout(() => { if (!stale(seq)) render(); }, 1500);
+    return;
+  }
+  if (info.state === "error") {
+    page.append(el("p", "notice", info.error));
+    return;
+  }
+
+  const dupWaste = info.duplicates.reduce((n, g) => n + g.waste, 0);
+  page.append(el("p", "card-sub", t("cleanupSummary", { files: info.files, dups: info.duplicates.length,
+    waste: formatSize(dupWaste), similar: info.similar.length })));
+  // Duplicates: every copy but the oldest is picked; similar photos: nothing is picked.
+  if (!cleanupState.ready) {
+    cleanupState.picked = new Set(info.duplicates.flatMap((g) => g.files.slice(1).map((f) => f.path)));
+    cleanupState.ready = true;
+  }
+  page.append(cleanupSection(t("cleanupDuplicates"), info.duplicates, "dup"),
+    cleanupSection(t("cleanupSimilar"), info.similar, "similar"));
+
+  const bar = el("div", "cleanup-bar");
+  const sizes = new Map([...info.duplicates, ...info.similar].flatMap((g) => g.files.map((f) => [f.path, f.size])));
+  const label = el("span");
+  const go = el("button", "btn danger", t("moveToTrash"));
+  const paint = () => {
+    const n = cleanupState.picked.size;
+    const bytes = [...cleanupState.picked].reduce((s, p) => s + (sizes.get(p) || 0), 0);
+    label.textContent = t("cleanupPicked", { n, size: formatSize(bytes) });
+    go.disabled = !n;
+  };
+  go.onclick = () => trashPicked(info);
+  bar.append(label, go);
+  page.append(bar);
+  cleanupState.paint = paint;
+  paint();
+}
+
+function cleanupSection(title, groups, kind) {
+  const section = el("section", "card cleanup-section");
+  section.append(el("h2", "", `${title} · ${groups.length}`));
+  if (!groups.length) section.append(el("p", "card-sub", t(kind === "dup" ? "cleanupNoDuplicates" : "cleanupNoSimilar")));
+  for (const group of groups) {
+    const box = el("div", "cleanup-group");
+    box.append(el("div", "card-sub", kind === "dup"
+      ? t("cleanupDupGroup", { n: group.files.length, size: formatSize(group.size), waste: formatSize(group.waste) })
+      : t("cleanupSimilarGroup", { n: group.files.length })));
+    const items = el("div", "cleanup-items");
+    group.files.forEach((file, index) => {
+      const row = el("label", "cleanup-item");
+      const check = el("input");
+      check.type = "checkbox";
+      check.checked = cleanupState.picked.has(file.path);
+      check.onchange = () => {
+        if (check.checked) cleanupState.picked.add(file.path); else cleanupState.picked.delete(file.path);
+        cleanupState.paint();
+      };
+      const thumb = el("div", "thumb");
+      if (kindOf(file.name)) {
+        const img = el("img");
+        img.loading = "lazy";
+        img.src = thumbUrl(file.path, file.v, "s", cleanupState.space);
+        thumb.append(img);
+      } else thumb.append(iconEl(KIND_ICONS[file.kind] || "file"));
+      const text = el("div", "name");
+      text.append(el("div", "", file.name),
+        el("div", "where", [file.path.includes("/") ? file.path.slice(0, file.path.lastIndexOf("/")) : t("files"),
+          shortFmt.format(file.modified * 1000), formatSize(file.size)].join(" · ")));
+      if (index === 0) text.append(el("div", "cleanup-keep", t(kind === "dup" ? "cleanupOldest" : "cleanupBiggest")));
+      row.append(check, thumb, text);
+      items.append(row);
+    });
+    box.append(items);
+    section.append(box);
+  }
+  return section;
+}
+
+// The picked files go to Recently deleted, all at once; Undo brings them all back.
+async function trashPicked() {
+  const paths = [...cleanupState.picked];
+  const ids = [];
+  for (const path of paths) {
+    try {
+      const { id } = await api(`api/files?${qs({ space: cleanupState.space, path })}`, { method: "DELETE" });
+      ids.push(id);
+    } catch { /* already gone */ }
+  }
+  cleanupState.picked.clear();
+  cleanupState.ready = false;
+  await post("api/cleanup/scan", { space: cleanupState.space });
+  snack(t("cleanupTrashed", { n: ids.length }), t("undo"), async () => {
+    for (const id of ids) await post("api/trash/restore", { id }).catch(() => {});
+    await post("api/cleanup/scan", { space: cleanupState.space });
+    render();
+  });
+  loadStatus();
+  render();
+}
 
 async function renderTrash() {
   setHeader(t("recentlyDeleted"), "");
@@ -2711,7 +2858,7 @@ const FS_NAMES = { ext4: "ext4", exfat: "exFAT", ntfs: "NTFS", vfat: "FAT32" };
 
 function showSetup(visible, disk) {
   $("setup").hidden = !visible;
-  for (const id of ["gallery", "files", "crumbs", "topbar", "home", "disks", "collections", "chips"]) $(id).hidden = visible;
+  for (const id of ["gallery", "files", "crumbs", "topbar", "home", "disks", "collections", "cleanup", "chips"]) $(id).hidden = visible;
   if (visible) showEmpty(null);
   if (!visible) return;
   if (disk === "ejected") {

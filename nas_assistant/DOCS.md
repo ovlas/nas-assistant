@@ -120,6 +120,19 @@ extra-storage disk, also from outside home:
 - It is **read only**: nothing on the disk is renamed, moved or deleted from here. NAS Assistant's own folders and
   system folders (`$RECYCLE.BIN`, `System Volume Information`, `.Trashes`, …) are not shown.
 
+## Cleanup: duplicates and similar photos
+
+**Cleanup** looks through your space (or Family) for files that only take room:
+
+- **Duplicates**: files with exactly the same content, whatever their names or folders ("IMG_0001.jpg" and
+  "IMG_0001 copy.jpg", the same PDF saved twice). The oldest copy is kept by default; the others are already ticked.
+- **Similar photos**: the same shot saved again smaller (WhatsApp, a resize), or nearly identical shots of a burst.
+  Nothing is ticked: you choose which to drop; the biggest copy is shown first.
+
+Ticked files go to **Recently deleted**, where they can be restored; nothing is deleted for good from here. The first
+search reads a little of every file of the same size and makes a thumbnail of each photo, so on a big library it can
+take a while; later searches only read what changed.
+
 ## Disk health
 
 Every 6 hours NAS Assistant reads each disk's SMART data: the overall verdict, temperature, hours on, and the

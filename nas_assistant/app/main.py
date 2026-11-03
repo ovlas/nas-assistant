@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from urllib.parse import urlencode, quote
 
-from . import albums, auth, backup, devices, diskadmin, disks, dlna, downloads, favorites, health, media, pieces, plugplay, rawdisk, storage, tv
+from . import albums, auth, backup, cleanup, devices, diskadmin, disks, dlna, downloads, favorites, health, media, pieces, plugplay, rawdisk, storage, tv
 from .auth import User, admin_user, avatar, current_user
 from .kinds import media_kind
 
@@ -897,6 +897,20 @@ def _route(request: Request) -> str:
     if "cf-connecting-ip" in request.headers:
         return "the public address (tunnel)"
     return "Ingress" if client == auth.INGRESS_IP else f"the home network ({client})"
+
+
+@app.get("/api/cleanup")
+def cleanup_status(space: str = "personal", user: User = Depends(current_user)):
+    """Duplicates and similar photos found by the last scan of a space (see cleanup.py)."""
+    storage._check_space(user, space)
+    return cleanup.status(user, space)
+
+
+@app.post("/api/cleanup/scan")
+async def cleanup_scan(request: Request, user: User = Depends(current_user)):
+    (space,) = await _fields(request, "space")
+    storage._check_space(user, space)
+    return cleanup.start(user, space)
 
 
 @app.get("/api/trash")
