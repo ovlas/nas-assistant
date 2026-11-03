@@ -55,3 +55,17 @@ def test_upload_into_subfolders_keeps_the_structure_and_never_into_hidden_ones(c
     for path in (".nas_assistant", "Album/.hidden", ".trash/x"):
         r = client.put("/api/upload", headers=alice, content=data, params={**params, "path": path})
         assert r.status_code == 400, path
+
+
+def test_big_files_go_whole_and_in_pieces_across_blocks(client, alice):
+    """Files go out 1 MB at a time: a big file, and pieces that cross those blocks, arrive intact."""
+    folder = NAS / "users" / "alice1"
+    data = os.urandom(3 * 1024 * 1024 + 12345)
+    (folder / "grande.mp4").write_bytes(data)
+    url = f"/dl/{link(client, alice, 'grande.mp4')['token']}/grande.mp4"
+    assert client.get(url).content == data
+    start, end = 1024 * 1024 - 10, 2 * 1024 * 1024 + 10  # across two block edges
+    part = client.get(url, headers={"Range": f"bytes={start}-{end}"})
+    assert part.status_code == 206 and part.content == data[start:end + 1]
+    tail = client.get(url, headers={"Range": "bytes=-100"})
+    assert tail.content == data[-100:]

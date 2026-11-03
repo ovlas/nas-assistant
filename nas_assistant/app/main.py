@@ -385,7 +385,7 @@ async def tv_file(token: str, name: str, request: Request):
     if media.kind_of(src.name) == "image":
         out = await run_in_threadpool(tv.tv_photo, src)
         return FileResponse(out, media_type="image/jpeg", headers={"Cache-Control": "no-store", **FILE_HEADERS})
-    return FileResponse(src, media_type=tv._content_type(src), headers={"Cache-Control": "no-store", **FILE_HEADERS})
+    return BigFileResponse(src, media_type=tv._content_type(src), headers={"Cache-Control": "no-store", **FILE_HEADERS})
 
 
 @app.post("/api/disks/health")
@@ -981,14 +981,21 @@ FILE_HEADERS = {"Content-Security-Policy": "sandbox; default-src 'none'; img-src
 PDF_HEADERS = {k: v for k, v in FILE_HEADERS.items() if k != "Content-Security-Policy"}
 
 
+class BigFileResponse(FileResponse):
+    """Sends a file 1 MB at a time instead of 64 KB: every piece is one hop to a worker thread,
+    and on a small home server those hops, not the disk or the network, capped downloads
+    at about 40 MB/s. Range requests (video seeking, resumed downloads) work the same."""
+    chunk_size = 1024 * 1024
+
+
 def file_response(target: Path, inline: bool = False, media_type: Optional[str] = None) -> FileResponse:
     inline = inline and target.suffix.lower() in SAFE_INLINE
     if inline and target.suffix.lower() == ".txt":
         media_type = "text/plain; charset=utf-8"
     # Supports HTTP Range requests, which Safari/iOS need to play videos.
     headers = PDF_HEADERS if target.suffix.lower() == ".pdf" else FILE_HEADERS
-    return FileResponse(target, filename=target.name, media_type=media_type, headers=headers,
-                        content_disposition_type="inline" if inline else "attachment")
+    return BigFileResponse(target, filename=target.name, media_type=media_type, headers=headers,
+                           content_disposition_type="inline" if inline else "attachment")
 
 
 @app.get("/api/download")
