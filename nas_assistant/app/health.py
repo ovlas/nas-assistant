@@ -73,10 +73,13 @@ def assess(data: Optional[dict]) -> dict:
             "model": data.get("model_name") or "", **{k: v for k, v in bad.items() if v}}
 
 
-def check(disks: List[str]) -> Dict[str, dict]:
-    """Read every disk now (slow: a few seconds each)."""
+def check(disks: List[str], partitions: Optional[Dict[str, List[str]]] = None) -> Dict[str, dict]:
+    """Read every disk now (slow: a few seconds each). With protection mode on only the
+    partitions given to the add-on exist here: then the disk is asked through them."""
     for device in disks:
-        result = assess(_smartctl(device) if os.path.exists(device) else None)
+        nodes = [n for n in [device, *(partitions or {}).get(device, [])] if os.path.exists(n)]
+        data = next((d for d in map(_smartctl, nodes) if d), None)
+        result = assess(data)
         result["checked"] = int(time.time())
         _results[device] = result
     return dict(_results)
@@ -112,8 +115,9 @@ async def watch(list_disks) -> None:
     while True:
         try:
             disks = list_disks()
-            results = await asyncio.get_running_loop().run_in_executor(None, check, [d for d, _ in disks])
-            for device, model in disks:
+            results = await asyncio.get_running_loop().run_in_executor(
+                None, check, [d for d, _, _ in disks], {d: parts for d, _, parts in disks})
+            for device, model, _ in disks:
                 result = results.get(device) or {}
                 state = result.get("state", "unknown")
                 if state in ("warning", "failing") and _notified.get(device) != state:

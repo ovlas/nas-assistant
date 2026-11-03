@@ -26,7 +26,7 @@ import segno
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
 log = logging.getLogger("uvicorn.error")
-app = FastAPI(title="NAS Assistant", version="0.27.0")
+app = FastAPI(title="NAS Assistant", version="0.27.1")
 
 # Small boards: decode at most two big images at once. Waiting requests queue
 # here, outside the worker threads, so uploads and browsing never stall behind them.
@@ -45,7 +45,7 @@ async def warm_folders():
 
 
 def _disks_to_watch():
-    return [(d["path"], d["model"]) for d in diskadmin.overview()]
+    return [(d["path"], d["model"], [p["path"] for p in d["partitions"]]) for d in diskadmin.overview()]
 
 
 @app.on_event("startup")
@@ -382,7 +382,7 @@ async def tv_file(token: str, name: str, request: Request):
 async def disks_health_now(user: User = Depends(admin_user)):
     """Read the SMART data of every disk now (a few seconds each)."""
     disks_now = await run_in_threadpool(_disks_to_watch)
-    return await run_in_threadpool(health.check, [d for d, _ in disks_now])
+    return await run_in_threadpool(health.check, [d for d, _, _ in disks_now], {d: p for d, _, p in disks_now})
 
 
 @app.get("/api/dlna")
