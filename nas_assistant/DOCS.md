@@ -118,6 +118,13 @@ extra-storage disk, also from outside home:
 - It is **read only**: nothing on the disk is renamed, moved or deleted from here. NAS Assistant's own folders and
   system folders (`$RECYCLE.BIN`, `System Volume Information`, `.Trashes`, …) are not shown.
 
+## Disk health
+
+Every 6 hours NAS Assistant reads each disk's SMART data: the overall verdict, temperature, hours on, and the
+counters that grow before a failure (replaced, unreadable and lost sectors; wear and media errors on SSDs). The Disks
+page shows it next to each disk (**Check the disks' health now** reads it at once). A disk that gets worse raises a
+Home Assistant notification. Some USB enclosures don't pass SMART on: their health shows as unknown, never as good.
+
 ## Plug and play
 
 NAS Assistant watches disks being plugged in and out:

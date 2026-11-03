@@ -17,7 +17,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from urllib.parse import urlencode, quote
 
-from . import albums, auth, backup, devices, diskadmin, disks, dlna, downloads, favorites, media, pieces, plugplay, rawdisk, storage, tv
+from . import albums, auth, backup, devices, diskadmin, disks, dlna, downloads, favorites, health, media, pieces, plugplay, rawdisk, storage, tv
 from .auth import User, admin_user, avatar, current_user
 from .kinds import media_kind
 
@@ -26,7 +26,7 @@ import segno
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
 log = logging.getLogger("uvicorn.error")
-app = FastAPI(title="NAS Assistant", version="0.26.0")
+app = FastAPI(title="NAS Assistant", version="0.27.0")
 
 # Small boards: decode at most two big images at once. Waiting requests queue
 # here, outside the worker threads, so uploads and browsing never stall behind them.
@@ -42,6 +42,15 @@ async def start_backup_scheduler():
 async def warm_folders():
     # Big disks: read every folder once now, so the first pages don't wait for it.
     asyncio.get_running_loop().run_in_executor(None, storage.warm)
+
+
+def _disks_to_watch():
+    return [(d["path"], d["model"]) for d in diskadmin.overview()]
+
+
+@app.on_event("startup")
+async def start_disk_health():
+    asyncio.get_running_loop().create_task(health.watch(_disks_to_watch))
 
 
 @app.on_event("startup")
@@ -367,6 +376,13 @@ async def tv_file(token: str, name: str, request: Request):
         out = await run_in_threadpool(tv.tv_photo, src)
         return FileResponse(out, media_type="image/jpeg", headers={"Cache-Control": "no-store", **FILE_HEADERS})
     return FileResponse(src, media_type=tv._content_type(src), headers={"Cache-Control": "no-store", **FILE_HEADERS})
+
+
+@app.post("/api/disks/health")
+async def disks_health_now(user: User = Depends(admin_user)):
+    """Read the SMART data of every disk now (a few seconds each)."""
+    disks_now = await run_in_threadpool(_disks_to_watch)
+    return await run_in_threadpool(health.check, [d for d, _ in disks_now])
 
 
 @app.get("/api/dlna")

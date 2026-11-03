@@ -25,7 +25,7 @@ from typing import Dict, List, Optional
 import aiohttp
 from fastapi import HTTPException
 
-from . import backup, disks, storage
+from . import backup, disks, health, storage
 
 log = logging.getLogger("uvicorn.error")
 
@@ -179,6 +179,7 @@ def overview(include_system: bool = False) -> List[dict]:
             "transport": (dev.get("tran") or "").upper(),
             "system": is_system,
             "accessible": accessible,
+            "health": health.get(dev["path"]),
             "usb_speed": _usb_speed(name),
             "partitions": parts,
         })

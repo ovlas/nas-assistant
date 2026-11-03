@@ -1230,7 +1230,14 @@ async function renderDisks() {
   const taken = (role) => info.disks.some((d) => d.partitions.some((p) => p.role === role));
   for (const disk of info.disks) page.append(diskCard(disk, info, { backup: taken("backup"), storage: taken("storage") }));
   for (const disk of info.away || []) page.append(awayCard(disk));
-  page.append(el("p", "notice hint", t("diskNotListed")));
+  const checkNow = el("button", "btn link subtle", t("healthCheckNow"));
+  checkNow.onclick = async () => {
+    checkNow.disabled = true;
+    checkNow.textContent = t("healthChecking");
+    try { await api("api/disks/health", { method: "POST" }); } catch (err) { alert(err.message); }
+    render();
+  };
+  page.append(checkNow, el("p", "notice hint", t("diskNotListed")));
   const tvCard = await dlnaCard();
   if (tvCard && !stale(seq)) page.append(tvCard);
 }
@@ -1258,6 +1265,23 @@ async function dlnaCard() {
   body.append(actions);
   node.append(head, body);
   return node;
+}
+
+// Disk health (SMART): a word, the temperature and the hours on; what is wrong, when something is.
+function healthLine(h) {
+  const line = el("div", "health");
+  if (!h) {
+    line.append(el("span", "health-dot"), el("span", "", t("healthPending")));
+    return line;
+  }
+  line.classList.add(`health-${h.state}`);
+  const facts = [t(`health_${h.state}`)];
+  if (h.temperature) facts.push(`${h.temperature} °C`);
+  if (h.hours) facts.push(t("healthHours", { n: h.hours.toLocaleString(LOCALE) }));
+  if (h.worn) facts.push(t("healthWorn", { n: h.worn }));
+  const why = (h.reasons || []).filter((r) => r !== "unreadable").map((r) => t(`healthWhy_${r}`));
+  line.append(el("span", "health-dot"), el("span", "", [...facts, ...why].join(" · ")));
+  return line;
 }
 
 // A disk that had a role and is unplugged: it stays listed, and comes back by itself.
@@ -1294,6 +1318,7 @@ function diskCard(disk, info, taken) {
   head.append(appIcon, titles);
   // A USB 2 link works, just slower: say so gently, once.
   if (disk.usb_speed && disk.usb_speed <= 480) titles.append(el("div", "card-sub", t("slowUsb")));
+  titles.append(healthLine(disk.health));
   // Eject sits next to the disk's name, so it is clear which disk gets unplugged.
   const used = disk.partitions.find((p) => ["nas", "backup", "storage"].includes(p.role) && p.state === "mounted");
   if (used) {

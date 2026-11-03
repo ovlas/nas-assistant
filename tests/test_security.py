@@ -54,3 +54,17 @@ def test_wrong_tokens_are_slowed_down(client, monkeypatch):
     codes = [client.get("/api/me", headers={"Authorization": "Bearer wrong", "CF-Connecting-IP": "9.9.9.9"}).status_code
              for _ in range(12)]
     assert codes[:10] == [401] * 10 and codes[-1] == 429
+
+
+def test_disk_health_verdicts():
+    from nas_assistant.app import health
+    assert health.assess(None)["state"] == "unknown"
+    good = {"smart_status": {"passed": True}, "temperature": {"current": 35}, "power_on_time": {"hours": 1200}}
+    assert health.assess(good)["state"] == "good"
+    realloc = {**good, "ata_smart_attributes": {"table": [{"id": 5, "raw": {"value": 8}}]}}
+    assert health.assess(realloc)["state"] == "warning"
+    pending = {**good, "ata_smart_attributes": {"table": [{"id": 197, "raw": {"value": 2}}]}}
+    assert health.assess(pending)["state"] == "failing"
+    assert health.assess({"smart_status": {"passed": False}})["state"] == "failing"
+    worn = {"smart_status": {"passed": True}, "nvme_smart_health_information_log": {"percentage_used": 95}}
+    assert health.assess(worn)["state"] == "warning"

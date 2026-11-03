@@ -473,3 +473,12 @@ dialog input { width: 100%; padding: 9px 10px; border-radius: 9px; border: 1px s
 .tv-bar { bottom: 84px; }
 .tv-bar i { width: 20px; height: 20px; color: var(--accent-2); flex: none; }
 @media (max-width: 760px) { .tv-bar { bottom: calc(96px + env(safe-area-inset-bottom)); } }
+
+/* Disk health */
+.health { display: flex; align-items: center; gap: 7px; margin-top: 4px; font-size: 13px; color: var(--muted); }
+.health-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex: none; }
+.health-good .health-dot { background: #34c759; }
+.health-warning .health-dot { background: #ff9f0a; }
+.health-warning { color: #ff9f0a; }
+.health-failing .health-dot { background: var(--danger); }
+.health-failing { color: var(--danger); font-weight: 600; }
