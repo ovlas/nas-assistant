@@ -2093,8 +2093,8 @@ const uploadHeaders = () => (uploads.pass ? { Authorization: `Bearer ${uploads.p
 
 // A piece is "stuck" after 20 s without progress while it is being sent. Once all of it is
 // sent, the answer may take longer: through Ingress, Home Assistant first receives the
-// whole piece and only then hands it to the NAS. Then it waits up to 2 minutes.
-const ANSWER_MS = 120 * 1000;
+// whole piece and only then hands it to the NAS. Then it waits up to 5 minutes.
+const ANSWER_MS = 5 * 60 * 1000;
 
 function putChunk(url, blob, onProgress) {
   return new Promise((resolve, reject) => {
@@ -2166,7 +2166,9 @@ async function uploadPlan(job) {
 // only delays its own piece, and after a failure only the missing stretches are sent again.
 const PIECE = 8 * 1024 * 1024;  // well under the 100 MB a tunnel such as Cloudflare accepts
 const PIECES_AT_ONCE = 3;       // per file
-const MAX_CONNECTIONS = 6;      // in all: what a browser opens to one address anyway
+// In all. Browsers open at most 6 connections to one address (Safari queues the rest
+// silently); keep two for the page itself and the checks between pieces.
+const MAX_CONNECTIONS = 4;
 
 async function takeConnection() {
   while (uploads.connections >= MAX_CONNECTIONS) await sleep(100);
