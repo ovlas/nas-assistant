@@ -1920,8 +1920,6 @@ $("v-stage").addEventListener("touchend", (e) => {
 // - the queue is remembered: after a reload, choosing the same files again goes on from
 //   where it stopped.
 
-const CHUNK_MIN = 1024 * 1024;
-const CHUNK_MAX = 16 * 1024 * 1024;
 const STALL_MS = 20 * 1000;
 const GIVE_UP_MS = 10 * 60 * 1000;  // a file waits this long for the network before "not uploaded"
 const QUEUE_KEY = "nas-upload-queue";
@@ -1996,11 +1994,6 @@ const uploadUrl = (job, extra) =>
   `${uploads.base ? uploads.base + "/" : ""}api/upload?${qs({ space: job.space, path: job.path, name: job.name, ...extra })}`;
 const uploadApi = (url) => api(url, { headers: uploadHeaders() });
 
-async function serverOffset(job) {
-  const { offset } = await uploadApi(uploadUrl(job));
-  return offset;
-}
-
 // Waits out a bad network before trying again: a few seconds first, then up to 30.
 async function waitToRetry(attempt) {
   if (!navigator.onLine) {
@@ -2029,48 +2022,110 @@ async function uploadPlan(job) {
   }
 }
 
+// A file goes in 8 MB pieces, a few at the same time; the NAS puts each where it belongs
+// and keeps what arrived even of a piece cut half way (see pieces.py). A frozen connection
+// only delays its own piece, and after a failure only the missing stretches are sent again.
+const PIECE = 8 * 1024 * 1024;  // well under the 100 MB a tunnel such as Cloudflare accepts
+const PIECES_AT_ONCE = 3;       // per file
+const MAX_CONNECTIONS = 6;      // in all: what a browser opens to one address anyway
+
+async function takeConnection() {
+  while (uploads.connections >= MAX_CONNECTIONS) await sleep(100);
+  uploads.connections = (uploads.connections || 0) + 1;
+}
+const releaseConnection = () => { uploads.connections--; };
+
+// The stretches of [0, size) not in `ranges`, cut in pieces of at most `piece` bytes.
+function missingPieces(ranges, size, piece = PIECE) {
+  const out = [];
+  let pos = 0;
+  const gap = (from, to) => { for (let a = from; a < to; a += piece) out.push([a, Math.min(a + piece, to)]); };
+  for (const [a, b] of [...ranges].sort((x, y) => x[0] - y[0])) {
+    if (a > pos) gap(pos, Math.min(a, size));
+    pos = Math.max(pos, b);
+  }
+  if (pos < size) gap(pos, size);
+  return out;
+}
+
+function countSent(job) {
+  job.sent = Math.min(job.size, job.stored + [...job.inflight.values()].reduce((n, v) => n + v, 0));
+  paintUploads();
+}
+
 async function uploadJob(job) {
-  const plan = await uploadPlan(job);
+  let plan = await uploadPlan(job);
   setUploadStatus("");
   job.name = plan.name;
   if (plan.complete) { job.sent = job.size; job.state = "skipped"; return; }
-  let offset = plan.offset;
-  let chunk = 8 * 1024 * 1024;
-  let failingSince = 0;
-  let attempt = 0;
-  let good = 0;
   job.state = "uploading";
-  for (;;) {
-    const end = Math.min(offset + chunk, job.size);
-    const final = end >= job.size;
+  job.inflight = new Map();
+  for (let round = 0; ; round++) {
+    const todo = missingPieces(plan.ranges || [], job.size);
+    job.stored = job.size - todo.reduce((n, [a, b]) => n + b - a, 0);
+    countSent(job);
+    // All there but not named yet (e.g. the last answer got lost): an empty piece finishes it.
+    if (!todo.length) todo.push([job.size, job.size]);
+    const failing = { since: 0 };
+    const worker = async () => {
+      let piece;
+      while (job.state === "uploading" && (piece = todo.shift())) {
+        if (await sendPiece(job, piece, todo, failing)) job.state = "done";
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(PIECES_AT_ONCE, todo.length) }, worker));
+    if (job.state === "done") { job.sent = job.size; return; }
+    // Every piece went, yet the NAS doesn't have the whole file: ask what is missing.
+    plan = await uploadPlan(job);
+    if (plan.complete) { job.sent = job.size; job.state = "done"; return; }
+    if (round >= 20) throw new Error(t("connectionLost"));
+  }
+}
+
+// One piece, again and again until it is on the NAS. True when the NAS says the file is whole.
+async function sendPiece(job, piece, todo, failing) {
+  let [start, end] = piece;
+  for (let attempt = 1; ; attempt++) {
+    let error = null;
+    await takeConnection();
     try {
-      await putChunk(uploadUrl(job, { offset, ...(final ? { final: 1 } : {}) }), job.file.slice(offset, end),
-        (loaded) => { job.sent = offset + loaded; paintUploads(); });
-      job.sent = offset = end;
-      failingSince = attempt = 0;
+      const answer = await putChunk(uploadUrl(job, { offset: start, size: job.size, piece: 1 }), job.file.slice(start, end),
+        (loaded) => { job.inflight.set(piece, loaded); countSent(job); });
+      job.inflight.delete(piece);
+      job.stored += end - start;
+      countSent(job);
+      failing.since = 0;
       uploads.directFailures = 0;
       setUploadStatus("");
-      if (++good >= 3 && chunk < CHUNK_MAX) { chunk *= 2; good = 0; }  // the network is fine again
-      if (final) { job.state = "done"; return; }
+      return answer.done;
     } catch (err) {
-      if (err.offset !== undefined) { offset = err.offset; continue; }  // the NAS says where to go on
-      if (passRefused(err)) continue;
-      if (err.permanent) throw err;
-      directFailed();
-      good = 0;
-      // Phone locked, app in the background or offline: waiting doesn't count as failing.
-      if (document.hidden || !navigator.onLine) {
-        failingSince = attempt = 0;
-      } else {
-        failingSince = failingSince || Date.now();
-        if (Date.now() - failingSince > GIVE_UP_MS) throw err;
-        chunk = Math.max(CHUNK_MIN, chunk / 2);  // smaller pieces get through a bad network
-      }
-      await waitToRetry(++attempt);
-      // Go on from what actually reached the disk, not from the start of the piece.
-      try { offset = await serverOffset(job); } catch { /* still offline: the same piece again */ }
-      job.sent = offset;
+      error = err;
+    } finally {
+      releaseConnection();
     }
+    job.inflight.delete(piece);
+    if (passRefused(error)) continue;
+    if (error.permanent) throw error;
+    directFailed();
+    // Phone locked, app in the background or offline: waiting doesn't count as failing.
+    if (document.hidden || !navigator.onLine) failing.since = 0;
+    else {
+      failing.since = failing.since || Date.now();
+      if (Date.now() - failing.since > GIVE_UP_MS) throw error;
+    }
+    await waitToRetry(attempt);
+    // The NAS kept what arrived of this piece: send only the rest of it.
+    try {
+      const plan = await uploadApi(uploadUrl(job, { size: job.size }));
+      if (plan.complete) return true;
+      const rest = missingPieces(plan.ranges || [], job.size, Infinity)
+        .map(([a, b]) => [Math.max(a, start), Math.min(b, end)]).filter(([a, b]) => b > a);
+      job.stored = job.size - missingPieces(plan.ranges || [], job.size, Infinity).reduce((n, [a, b]) => n + b - a, 0);
+      countSent(job);
+      if (!rest.length) return false;  // it all arrived after all
+      [start, end] = rest[0];
+      todo.push(...rest.slice(1));
+    } catch { /* still offline: the same piece again */ }
   }
 }
 
@@ -2147,11 +2202,35 @@ async function runUploads() {
   uploads.startBytes = sum(uploads.jobs, "sent");
   uploads.wakeLock = await keepAwake();
   await pickUploadRoute();
+  // A few files at once: many photos go much faster, and one slow file doesn't hold the rest.
+  await Promise.all(Array.from({ length: UPLOAD_LANES }, () => uploadLane()));
+  uploads.running = false;
+  if (uploads.wakeLock) uploads.wakeLock.release().catch(() => {});
+  paintUploads();
+  render();
+  loadStatus();
+}
+
+const UPLOAD_LANES = 3;
+
+// The next file for a lane. Two files that would get the same name in the same folder never
+// go at the same time: they would grow the same temporary file (the second becomes "name (2)").
+const sameTarget = (a, b) => a.space === b.space && a.path === b.path && a.original === b.original;
+const nextJob = () => uploads.jobs.find((j) => j.state === "waiting"
+  && !uploads.jobs.some((o) => o.state === "uploading" && sameTarget(o, j)));
+
+async function uploadLane() {
   let job;
-  while ((job = uploads.jobs.find((j) => j.state === "waiting"))) {
+  while ((job = nextJob()) || uploads.jobs.some((j) => j.state === "waiting")) {
+    if (!job) { await sleep(500); continue; }  // only same-name files left: wait for their twin
+    job.state = "uploading";  // taken by this lane before any await
     // Back on Ingress after a hiccup (e.g. NAS Assistant restarting): try the direct way again.
-    if (!uploads.base) { uploads.directFailures = 0; await pickUploadRoute(); }
-    job.state = "uploading";
+    if (!uploads.base && !uploads.picking) {
+      uploads.picking = true;
+      uploads.directFailures = 0;
+      await pickUploadRoute();
+      uploads.picking = false;
+    }
     paintUploads();
     try {
       await uploadJob(job);
@@ -2159,15 +2238,10 @@ async function runUploads() {
       job.state = "failed";
       job.error = err.message;
     }
-    setUploadStatus("");
+    if (!uploads.jobs.some((j) => j.state === "uploading")) setUploadStatus("");
     saveQueue();
     paintUploads();
   }
-  uploads.running = false;
-  if (uploads.wakeLock) uploads.wakeLock.release().catch(() => {});
-  paintUploads();
-  render();
-  loadStatus();
 }
 
 const sum = (jobs, field) => jobs.reduce((n, j) => n + j[field], 0);

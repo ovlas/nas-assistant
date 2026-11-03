@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import errno
 import io
 import os
@@ -6,7 +7,7 @@ import secrets
 import shutil
 import tempfile
 import time
-from typing import Dict
+from typing import Dict, Optional
 from pathlib import Path
 
 import aiohttp
@@ -16,7 +17,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from urllib.parse import urlencode
 
-from . import albums, backup, devices, diskadmin, disks, dlna, favorites, media, plugplay, rawdisk, storage, tv
+from . import albums, auth, backup, devices, diskadmin, disks, dlna, favorites, media, pieces, plugplay, rawdisk, storage, tv
 from .auth import User, admin_user, avatar, current_user
 from .kinds import media_kind
 
@@ -24,7 +25,8 @@ import segno
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
-app = FastAPI(title="NAS Assistant", version="0.23.0")
+log = logging.getLogger("uvicorn.error")
+app = FastAPI(title="NAS Assistant", version="0.24.0")
 
 # Small boards: decode at most two big images at once. Waiting requests queue
 # here, outside the worker threads, so uploads and browsing never stall behind them.
@@ -363,8 +365,8 @@ async def tv_file(token: str, name: str, request: Request):
     src = tv.target(token)
     if media.kind_of(src.name) == "image":
         out = await run_in_threadpool(tv.tv_photo, src)
-        return FileResponse(out, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
-    return FileResponse(src, media_type=tv._content_type(src), headers={"Cache-Control": "no-store"})
+        return FileResponse(out, media_type="image/jpeg", headers={"Cache-Control": "no-store", **FILE_HEADERS})
+    return FileResponse(src, media_type=tv._content_type(src), headers={"Cache-Control": "no-store", **FILE_HEADERS})
 
 
 @app.get("/api/dlna")
@@ -698,33 +700,98 @@ async def upload_status(space: str, name: str, path: str = "", size: int = -1, u
 @app.put("/api/upload")
 async def upload_chunk(
     request: Request, space: str, name: str, path: str = "", offset: int = 0, final: bool = False,
-    user: User = Depends(web_uploader),
+    size: int = -1, piece: bool = False, user: User = Depends(web_uploader),
 ):
     """Resumable upload, one chunk per request: send the file in pieces with
-    their byte offset; the last piece has final=1. A 409 tells the client
-    how much the server already has, so it can resume from there."""
+    their byte offset; the last piece has final=1 (and the file's size, checked
+    before the file is kept). A 409 tells the client how much the server
+    already has, so it can resume from there.
+    With piece=1 (and size), pieces may come in any order and at the same time:
+    see pieces.py."""
     partial, target = storage.chunk_targets(user, space, path, name)
-    have = partial.stat().st_size if partial.exists() else 0
+    if piece:
+        return await _upload_piece(request, partial, target, offset, size)
+    # In order: go on from the end of what arrived in one stretch (a piece upload
+    # switched to this way can have holes further on: those are dropped).
+    ranges = pieces.load(partial)
+    have = ranges[0][1] if ranges and ranges[0][0] == 0 else 0
+    if partial.exists() and partial.stat().st_size != have:
+        os.truncate(partial, have)
+        pieces.forget(partial)
     if offset and offset != have:
         raise HTTPException(409, {"message": "Resuming upload", "offset": have})
+    started = time.monotonic()
+    if not offset:
+        _upload_started[str(partial)] = started
     # The disk may be slow (USB 2, NTFS): write in a worker thread, in big blocks, so other
     # requests (and the other pieces) never wait behind it.
     out = await run_in_threadpool(open, partial, "ab" if offset else "wb")
+    buffer = bytearray()
     try:
-        buffer = bytearray()
         async for chunk in request.stream():
             buffer += chunk
             if len(buffer) >= 4 * 1024 * 1024:
                 await run_in_threadpool(out.write, bytes(buffer))
                 buffer.clear()
+    finally:
+        # Also when the connection drops mid-piece: keep every byte that arrived, so the
+        # upload goes on from exactly there instead of sending the piece again.
         if buffer:
             await run_in_threadpool(out.write, bytes(buffer))
-    finally:
         await run_in_threadpool(out.close)
+    received = partial.stat().st_size
+    seconds = time.monotonic() - started
+    if seconds > 10:
+        log.info("Slow piece of %s: %s in %.0f s from %s", name, _mb(received - offset), seconds, _route(request))
     if not final:
-        return {"offset": partial.stat().st_size}
+        return {"offset": received}
+    # Never keep a file that isn't whole: a piece lost on the way leaves it shorter.
+    if size >= 0 and received != size:
+        log.warning("Upload of %s incomplete (%d of %d bytes): resuming", name, received, size)
+        raise HTTPException(409, {"message": "Resuming upload", "offset": received})
     await run_in_threadpool(os.replace, partial, target)
+    pieces.forget(partial)
+    _log_done(request, partial, target, received, started)
     return {"name": target.name, "size": target.stat().st_size}
+
+
+async def _upload_piece(request: Request, partial: Path, target: Path, offset: int, size: int) -> dict:
+    if size < 0 or not 0 <= offset <= size:
+        raise HTTPException(422, "Required fields: offset, size")
+    if not partial.exists() and target.is_file() and target.stat().st_size == size:
+        return {"done": True, "received": 0}  # a late copy of a piece of a finished file
+    started = time.monotonic()
+    _upload_started.setdefault(str(partial), started)
+    await pieces.begin(partial)
+    end = await pieces.receive(request.stream(), partial, offset, size)
+    if time.monotonic() - started > 10:
+        log.info("Slow piece of %s: %s in %.0f s from %s", target.name, _mb(end - offset),
+                 time.monotonic() - started, _route(request))
+    done = await pieces.note(partial, target, offset, end, size)
+    if done:
+        _log_done(request, partial, target, size, started)
+    return {"done": done, "received": end - offset}
+
+
+def _log_done(request: Request, partial: Path, target: Path, size: int, started: float) -> None:
+    total = time.monotonic() - _upload_started.pop(str(partial), started)
+    log.info("Uploaded %s: %s in %.1f s (%s/s) from %s", target.name, _mb(size), total,
+             _mb(size / max(total, 0.001)), _route(request))
+
+
+_upload_started: Dict[str, float] = {}
+
+
+def _mb(size: float) -> str:
+    return f"{size / 1024 / 1024:.1f} MB"
+
+
+def _route(request: Request) -> str:
+    """Which way an upload came: home network, tunnel or Ingress (for the log)."""
+    client = request.client.host if request.client else "?"
+    if "cf-connecting-ip" in request.headers:
+        return "the public address (tunnel)"
+    return "Ingress" if client == auth.INGRESS_IP else f"the home network ({client})"
 
 
 @app.get("/api/trash")
@@ -761,14 +828,36 @@ def delete_forever(id: str = "", all: bool = False, user: User = Depends(current
     return {"ok": True}
 
 
+# Files people uploaded are shown in the browser only if they can't run code there: an
+# HTML or SVG file opened "inline" would otherwise run as a page of NAS Assistant, i.e. of
+# Home Assistant (same origin, behind Ingress), and could take over the viewer's login.
+# Every file response also tells the browser to treat it as a sandboxed, foreign document.
+SAFE_INLINE = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".heic", ".heif", ".bmp", ".tif", ".tiff",
+               ".mp4", ".mov", ".m4v", ".webm", ".mkv", ".avi", ".3gp", ".mp3", ".m4a", ".aac", ".flac",
+               ".wav", ".ogg", ".opus", ".pdf", ".txt"}
+FILE_HEADERS = {"Content-Security-Policy": "sandbox; default-src 'none'; img-src 'self' data:; media-src 'self'; "
+                                           "style-src 'unsafe-inline'",
+                "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer"}
+# The browsers' PDF viewers refuse to open in a sandbox; a PDF can't script the page anyway.
+PDF_HEADERS = {k: v for k, v in FILE_HEADERS.items() if k != "Content-Security-Policy"}
+
+
+def file_response(target: Path, inline: bool = False, media_type: Optional[str] = None) -> FileResponse:
+    inline = inline and target.suffix.lower() in SAFE_INLINE
+    if inline and target.suffix.lower() == ".txt":
+        media_type = "text/plain; charset=utf-8"
+    # Supports HTTP Range requests, which Safari/iOS need to play videos.
+    headers = PDF_HEADERS if target.suffix.lower() == ".pdf" else FILE_HEADERS
+    return FileResponse(target, filename=target.name, media_type=media_type, headers=headers,
+                        content_disposition_type="inline" if inline else "attachment")
+
+
 @app.get("/api/download")
 async def download(space: str, path: str, inline: bool = False, user: User = Depends(current_user)):
     target = _source(user, space, path)
     if not target.is_file():
         raise HTTPException(404, "File not found")
-    # Supports HTTP Range requests, which Safari/iOS need to play videos.
-    return FileResponse(target, filename=target.name,
-                        content_disposition_type="inline" if inline else "attachment")
+    return file_response(target, inline)
 
 
 @app.delete("/api/files")

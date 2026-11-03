@@ -133,12 +133,42 @@ async def current_user(request: Request) -> User:
     if user:
         return user
     auth = request.headers.get("Authorization", "")
-    # Device keys (nas_…) only work for uploads, see devices.py; never sent to Home Assistant.
-    if auth.startswith("Bearer ") and not auth.startswith("Bearer nas_"):
+    # Device keys (nas_…) and upload passes (upl_…) only work for uploads; never sent to Home Assistant.
+    if auth.startswith("Bearer ") and not auth.startswith(("Bearer nas_", "Bearer upl_")):
+        client = _client_id(request)
+        _check_failures(client)
         user = await _from_bearer(auth[len("Bearer "):])
         if user:
             return user
+        _failed(client)
     raise HTTPException(401, "Not authorized")
+
+
+# Wrong tokens are checked against Home Assistant: a flood of them could guess nothing
+# (tokens are long) but would load Home Assistant and fill its log. A few per minute per address.
+MAX_FAILED_TOKENS = 10
+_token_failures: Dict[str, Tuple[float, int]] = {}
+
+
+def _client_id(request: Request) -> str:
+    # Through a tunnel every request comes from the tunnel: tell its visitors apart.
+    return request.headers.get("cf-connecting-ip") or (request.client.host if request.client else "")
+
+
+def _check_failures(client: str) -> None:
+    start, count = _token_failures.get(client, (0.0, 0))
+    if count >= MAX_FAILED_TOKENS and time.monotonic() - start < 60:
+        raise HTTPException(429, "Too many attempts, try again in a minute")
+
+
+def _failed(client: str) -> None:
+    now = time.monotonic()
+    start, count = _token_failures.get(client, (now, 0))
+    if now - start > 60:
+        start, count = now, 0
+    _token_failures[client] = (start, count + 1)
+    if len(_token_failures) > 10000:  # don't grow without end
+        _token_failures.clear()
 
 
 async def admin_user(user: User = Depends(current_user)) -> User:

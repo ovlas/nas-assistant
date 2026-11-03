@@ -78,7 +78,7 @@ def make_thumbnail(src: Path, size: str, out: Path) -> Path:
         partial = out.with_suffix(f".{os.getpid()}.part")
         img.save(partial, "WEBP", quality=80, method=4)
         os.replace(partial, out)
-    except (OSError, SyntaxError, subprocess.TimeoutExpired):
+    except (OSError, SyntaxError, subprocess.TimeoutExpired, Image.DecompressionBombError):
         raise HTTPException(415, "Can't create the thumbnail")
     return out
 

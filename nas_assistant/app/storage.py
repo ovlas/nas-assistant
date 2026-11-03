@@ -33,6 +33,7 @@ from fastapi import HTTPException
 
 from . import disks
 from .auth import User
+from . import pieces
 from .kinds import KINDS, kind_of
 
 NAS_ROOT = disks.NAS_ROOT
@@ -362,8 +363,10 @@ def upload_plan(user: User, space: str, rel_path: str, name: str, size: int) -> 
                 return {"name": candidate, "complete": True, "offset": size}
             continue  # a different file has this name: try the next one
         parts = [p for p in candidates(user, space, os.path.join(rel, f".{candidate}.part")) if p.is_file()]
-        offset = parts[0].stat().st_size if parts else 0
-        return {"name": candidate, "complete": False, "offset": offset if offset <= size else 0}
+        # Which stretches already arrived (pieces sent in any order), and how far in one go.
+        ranges = [r for r in (pieces.load(parts[0]) if parts else []) if r[1] <= size]
+        offset = ranges[0][1] if ranges and ranges[0][0] == 0 else 0
+        return {"name": candidate, "complete": False, "offset": offset, "ranges": ranges}
     raise HTTPException(409, "Already exists")
 
 

@@ -60,8 +60,12 @@ what is left, speed and time left, and how many files are uploaded, already ther
   home network to its port 8456 when Home Assistant was opened with its local `http://` address (tens of MB/s),
   otherwise to the **Public address** (e.g. Cloudflare), with a pass that only allows uploads and lasts 12 hours.
   Without either, uploads use Ingress as before.
-- Files travel in pieces. When the connection drops, the piece is sent again from what really reached the disk,
-  with smaller pieces while the network is bad, for up to 10 minutes per file. A locked phone or a background tab
+- Big files travel in 8 MB pieces, several at the same time over separate connections; the NAS puts each piece
+  where it belongs and keeps everything that arrived, even of a piece cut half way. A frozen connection only delays
+  its own piece. Three files go at once.
+- A file appears only when every byte has arrived: the NAS checks its exact size first, so a file is never "uploaded"
+  half way.
+- When the connection drops, only what is missing is sent again, for up to 10 minutes per file. A locked phone or a background tab
   doesn't stop it.
 - A file already on the NAS (same name and size) is skipped. A different file with the same name is kept as
   "name (2)": nothing is ever overwritten.
