@@ -159,6 +159,25 @@ def _index_later(key: str, kind: str, mtime_ns: int, size: int) -> None:
             _indexer.start()
 
 
+def with_created(entries: List[dict]) -> List[dict]:
+    """Add each entry's creation date: when a photo or video was shot (from the gallery
+    index), else the file's own date. Drops the internal "_full" path."""
+    keys = [e["_full"] for e in entries if e.get("_full") and kind_of(e["name"])]
+    taken = {}
+    if keys:
+        conn = _db()
+        try:
+            for i in range(0, len(keys), 500):
+                part = keys[i:i + 500]
+                taken.update(conn.execute(f"SELECT path, taken FROM media WHERE path IN ({','.join('?' * len(part))})",
+                                          part).fetchall())
+        finally:
+            conn.close()
+    for entry in entries:
+        entry["created"] = taken.get(entry.pop("_full", None), entry.get("modified", 0))
+    return entries
+
+
 def gallery(user: User, space: str) -> List[dict]:
     conn = _db()
     try:
@@ -168,7 +187,7 @@ def gallery(user: User, space: str) -> List[dict]:
                  if path.startswith(prefixes)}
         items = []
         seen = set()
-        for folder, name, size, mtime_ns, rel in storage._files(user, space):
+        for folder, name, size, mtime_ns, rel, _ in storage._files(user, space):
             kind = kind_of(name)
             if not kind:
                 continue

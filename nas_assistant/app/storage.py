@@ -191,7 +191,7 @@ _dir_cache: Dict[str, tuple] = {}
 
 
 def _listing(folder: str) -> list:
-    """(name, is_dir, size, mtime_ns) of a folder's visible entries."""
+    """(name, is_dir, size, mtime_ns, ctime) of a folder's visible entries."""
     try:
         mtime = os.stat(folder).st_mtime_ns
     except OSError:
@@ -210,7 +210,7 @@ def _listing(folder: str) -> list:
                     stat = entry.stat()
                 except OSError:
                     continue
-                items.append((entry.name, is_dir, 0 if is_dir else stat.st_size, stat.st_mtime_ns))
+                items.append((entry.name, is_dir, 0 if is_dir else stat.st_size, stat.st_mtime_ns, int(stat.st_ctime)))
     except OSError:
         return []
     _dir_cache[folder] = (mtime, items)
@@ -218,16 +218,16 @@ def _listing(folder: str) -> list:
 
 
 def _files(user: User, space: str):
-    """Every file of a space on every disk: yields (folder, name, size, mtime_ns, rel path)."""
+    """Every file of a space on every disk: yields (folder, name, size, mtime_ns, rel path, ctime)."""
     for _, root in roots(user, space):
         stack = [(str(root), "")]
         while stack:
             folder, rel = stack.pop()
-            for name, is_dir, size, mtime in _listing(folder):
+            for name, is_dir, size, mtime, ctime in _listing(folder):
                 if is_dir:
                     stack.append((os.path.join(folder, name), f"{rel}/{name}" if rel else name))
                 else:
-                    yield folder, name, size, mtime, f"{rel}/{name}" if rel else name
+                    yield folder, name, size, mtime, f"{rel}/{name}" if rel else name, ctime
 
 
 def warm() -> None:
@@ -237,7 +237,7 @@ def warm() -> None:
             stack = [str(root / top)]
             while stack:
                 folder = stack.pop()
-                stack += [os.path.join(folder, n) for n, is_dir, _, _ in _listing(folder) if is_dir]
+                stack += [os.path.join(folder, n) for n, is_dir, *_ in _listing(folder) if is_dir]
 
 
 def _clean_rel(path: str) -> str:
@@ -275,24 +275,27 @@ def list_dir(user: User, space: str, rel_path: str) -> List[dict]:
                 "is_dir": entry.is_dir(),
                 "size": 0 if entry.is_dir() else stat.st_size,
                 "modified": int(stat.st_mtime),
+                "added": int(stat.st_ctime),  # when it arrived here (an upload, a copy, a move)
                 "v": stat.st_mtime_ns,
                 "kind": None if entry.is_dir() else kind_of(entry.name),
+                "_full": entry.path,  # for the shooting date of photos and videos
             }
     return sorted(entries.values(), key=lambda e: (not e["is_dir"], e["name"].lower()))
 
 
 def recent_files(user: User, space: str, limit: int, skip_kinds=()) -> List[dict]:
     """The most recently changed files of a space, newest first."""
-    found = ((mtime, rel, name, size) for _, name, size, mtime, rel in _files(user, space)
+    found = ((mtime, rel, name, size, ctime) for _, name, size, mtime, rel, ctime in _files(user, space)
              if kind_of(name) not in skip_kinds)
     entries = []
-    for mtime, rel, name, size in heapq.nlargest(limit, found, key=lambda f: f[0]):
+    for mtime, rel, name, size, ctime in heapq.nlargest(limit, found, key=lambda f: f[0]):
         entries.append({
             "name": name,
             "path": rel,
             "is_dir": False,
             "size": size,
             "modified": mtime // 10**9,
+            "added": ctime,
             "v": mtime,
             "kind": kind_of(name),
         })
@@ -308,7 +311,7 @@ def files_by_kind(user: User, space: str, kind: str) -> List[dict]:
     if kind not in KINDS and kind != "other":
         raise HTTPException(400, "Unknown type")
     found = []
-    for _, name, size, mtime, rel in _files(user, space):
+    for folder, name, size, mtime, rel, ctime in _files(user, space):
         if kind_of(name) != kind:
             continue
         found.append({
@@ -317,6 +320,8 @@ def files_by_kind(user: User, space: str, kind: str) -> List[dict]:
             "is_dir": False,
             "size": size,
             "modified": mtime // 10**9,
+            "added": ctime,
+            "_full": os.path.join(folder, name),
             "v": mtime,
             "kind": kind,
         })

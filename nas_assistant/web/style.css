@@ -399,6 +399,8 @@ dialog input { width: 100%; padding: 9px 10px; border-radius: 9px; border: 1px s
 .menu button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 10px; border: 0; border-radius: 8px;
                background: none; color: var(--text); font: inherit; font-size: 14px; text-align: left; cursor: pointer; }
 .menu button:hover { background: var(--hover); }
+.menu button.on, .menu button.on i { color: var(--accent); font-weight: 600; }
+.menu-sep { height: 1px; margin: 4px 6px; background: var(--line); }
 .menu button i { width: 18px; height: 18px; color: var(--muted); }
 .menu button.danger, .menu button.danger i { color: var(--danger); }
 .move-dialog { width: min(440px, calc(100vw - 32px)); }

@@ -91,6 +91,8 @@ def listing(user: User, space: str) -> List[dict]:
                 "is_dir": is_dir,
                 "size": 0 if is_dir else stat.st_size,
                 "modified": int(stat.st_mtime),
+                "added": int(stat.st_ctime),
+                "_full": str(full),
                 "v": stat.st_mtime_ns,
                 "kind": None if is_dir else kind_of(full.name),
                 "fav": True,

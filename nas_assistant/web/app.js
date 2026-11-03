@@ -1,11 +1,20 @@
 // All URLs are relative so the UI works behind Ingress (/api/hassio_ingress/<token>/).
-const state = { space: "personal", view: "home", path: "", kind: "all", layout: savedLayout(), user: null, items: [], viewerIndex: -1 };
+const state = { space: "personal", view: "home", path: "", kind: "all", layout: savedLayout(), sort: savedSort(), user: null, items: [], viewerIndex: -1 };
 const $ = (id) => document.getElementById(id);
 
 // Files layout (list, icons, grid): a per-browser preference.
 function savedLayout() {
   try { return ["list", "icons", "grid"].includes(localStorage.getItem("nas-layout")) ? localStorage.getItem("nas-layout") : "list"; }
   catch { return "list"; }
+}
+
+// How lists are sorted: name, size, date added to the NAS, or creation date (photos: when shot).
+function savedSort() {
+  try {
+    const saved = JSON.parse(localStorage.getItem("nas-sort") || "null");
+    if (saved && ["name", "size", "added", "created"].includes(saved.by)) return saved;
+  } catch { /* the default */ }
+  return { by: "name", desc: false };
 }
 
 // --- Icons (outline, SF Symbols-like) -----------------------------------------
@@ -21,6 +30,8 @@ const ICON_PATHS = {
   download: '<path d="M12 4v12M7.5 11.5 12 16l4.5-4.5M4.5 15v2.5A2.5 2.5 0 0 0 7 20h10a2.5 2.5 0 0 0 2.5-2.5V15"/>',
   trash: '<path d="M4.5 6.5h15M9.5 6.5V4.8c0-.7.5-1.3 1.2-1.3h2.6c.7 0 1.2.6 1.2 1.3v1.7M6.5 6.5l.8 12.2c.1 1 .9 1.8 1.9 1.8h5.6c1 0 1.8-.8 1.9-1.8l.8-12.2"/>',
   close: '<path d="M6 6l12 12M18 6 6 18"/>',
+  blank: '',
+  sort: '<path d="M7 4.5v15M3.5 16 7 19.5l3.5-3.5M14 6.5h6.5M14 11h4.5M14 15.5h2.5"/>',
   check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
   clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
   up: '<path d="M6 15l6-6 6 6"/>',
@@ -148,6 +159,8 @@ function setHeader(title, subtitle) {
   $("upload-btn").hidden = ["trash", "disks", "collections", "collection"].includes(state.view) || isDisk(state.space);
   $("empty-trash").hidden = true;
   $("tv-btn").hidden = true;  // shown by the photo views once they have items
+  $("sort-btn").hidden = !["files", "collection"].includes(state.view);
+  paintSortButton();
 }
 
 function showEmpty(title, text) {
@@ -256,6 +269,52 @@ function tile(item, index) {
 
 // --- Files --------------------------------------------------------------------
 
+// --- Sorting ---------------------------------------------------------------------
+
+const SORTS = ["name", "size", "added", "created"];
+const sortDate = (e) => (state.sort.by === "added" ? e.added : state.sort.by === "created" ? e.created : e.modified) || e.modified || 0;
+
+function sortEntries(entries) {
+  const { by, desc } = state.sort;
+  const key = by === "size" ? (e) => e.size || 0 : by === "name" ? null : sortDate;
+  const byName = (a, b) => a.name.localeCompare(b.name, LOCALE, { numeric: true, sensitivity: "base" });
+  return [...entries].sort((a, b) => {
+    if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1;  // folders first, as in Finder
+    const order = key ? key(a) - key(b) || byName(a, b) : byName(a, b);
+    return desc ? -order : order;
+  });
+}
+
+function paintSortButton() {
+  const button = $("sort-btn");
+  button.replaceChildren(iconEl("sort"), el("span", "", `${t(`sort_${state.sort.by}`)} ${state.sort.desc ? "↓" : "↑"}`));
+}
+
+$("sort-btn").onclick = (e) => {
+  e.stopPropagation();
+  const menu = $("menu");
+  menu.innerHTML = "";
+  const item = (label, on, action) => {
+    const b = el("button", on ? "on" : "");
+    b.append(iconEl(on ? "check" : "blank"), el("span", "", label));
+    b.onclick = () => { closeMenu(); action(); };
+    menu.append(b);
+  };
+  const apply = (sort) => {
+    state.sort = sort;
+    try { localStorage.setItem("nas-sort", JSON.stringify(sort)); } catch { /* not remembered */ }
+    render();
+  };
+  // A new order starts the useful way round: A→Z, the biggest, the newest.
+  for (const by of SORTS) item(t(`sort_${by}`), state.sort.by === by, () => apply({ by, desc: by !== "name" }));
+  menu.append(el("div", "menu-sep"));
+  item(t(state.sort.by === "name" ? "sortAZ" : state.sort.by === "size" ? "sortSmallFirst" : "sortOldFirst"),
+    !state.sort.desc, () => apply({ ...state.sort, desc: false }));
+  item(t(state.sort.by === "name" ? "sortZA" : state.sort.by === "size" ? "sortBigFirst" : "sortNewFirst"),
+    state.sort.desc, () => apply({ ...state.sort, desc: true }));
+  placeMenu(menu, e.currentTarget.getBoundingClientRect());
+};
+
 async function renderFiles() {
   if (isDisk(state.space)) return renderDiskFiles();
   const root = t(state.space === "personal" ? "files" : "sharedFiles");
@@ -276,6 +335,7 @@ async function renderFiles() {
   }
   if (stale(seq)) return;
   for (const e of entries) e.path = e.path || join(state.path, e.name);
+  entries = sortEntries(entries);
   // The viewer browses the photos and videos of this list.
   state.items = entries.filter((e) => !e.is_dir && kindOf(e.name))
     .map((e) => ({ path: e.path, name: e.name, kind: kindOf(e.name), taken: e.modified, v: e.v, fav: e.fav }));
@@ -314,6 +374,7 @@ async function renderDiskFiles() {
   if (stale(seq)) return;
   if (state.space !== "disk") renderCrumbs(diskName(state.space));
   for (const e of entries) e.path = e.path || join(state.path, e.name);
+  if (state.space !== "disk") entries = sortEntries(entries);
   state.items = entries.filter((e) => !e.is_dir && kindOf(e.name))
     .map((e) => ({ path: e.path, name: e.name, kind: kindOf(e.name), taken: e.modified, v: e.v }));
   if (!entries.length) return showEmpty(t(state.space === "disk" ? "noDiskFilesTitle" : "emptyFolderTitle"), t(state.space === "disk" ? "noDiskFilesText" : "diskFilesEmpty"));
@@ -400,7 +461,7 @@ function fileRow(entry) {
     row.append(
       thumb,
       name,
-      el("div", "meta", entry.modified ? shortFmt.format(entry.modified * 1000) : "—"),
+      el("div", "meta", entry.modified ? shortFmt.format(sortDate(entry) * 1000) : "—"),
       el("div", "meta", entry.is_dir ? "—" : formatSize(entry.size)),
       actions,
     );
@@ -950,8 +1011,9 @@ async function renderCollection() {
     crumbs.append(del);
   }
   crumbs.querySelectorAll("i").forEach((i) => { i.style.width = i.style.height = "14px"; });
+  col.items = sortEntries(col.items);
   state.items = col.items.filter((i) => kindOf(i.name))
-    .map((i) => ({ ...i, taken: i.modified }));
+    .map((i) => ({ ...i, taken: i.created || i.modified }));
   $("tv-btn").hidden = !state.items.length;
   if (!col.items.length) return showEmpty(t("collectionEmptyTitle"), t(col.kind === "album" ? "albumEmptyText" : "dossierEmptyText"));
   if (col.kind === "album") {

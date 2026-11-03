@@ -24,7 +24,7 @@ import segno
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
-app = FastAPI(title="NAS Assistant", version="0.21.3")
+app = FastAPI(title="NAS Assistant", version="0.22.0")
 
 # Small boards: decode at most two big images at once. Waiting requests queue
 # here, outside the worker threads, so uploads and browsing never stall behind them.
@@ -443,7 +443,7 @@ async def list_files(space: str = "personal", path: str = "", user: User = Depen
     if space.startswith(rawdisk.PREFIX):
         _source(user, space, "")
         return {"space": space, "path": path, "entries": await run_in_threadpool(rawdisk.list_dir, space, path)}
-    entries = storage.list_dir(user, space, path)
+    entries = media.with_created(storage.list_dir(user, space, path))
     favs = favorites.paths(user, space)
     for entry in entries:
         entry["fav"] = os.path.normpath(os.path.join(path.strip("/"), entry["name"])) in favs
@@ -452,7 +452,7 @@ async def list_files(space: str = "personal", path: str = "", user: User = Depen
 
 @app.get("/api/files/by-kind")
 def files_by_kind(space: str, kind: str, user: User = Depends(current_user)):
-    entries = storage.files_by_kind(user, space, kind)
+    entries = media.with_created(storage.files_by_kind(user, space, kind))
     favs = favorites.paths(user, space)
     for entry in entries:
         entry["fav"] = entry["path"] in favs
@@ -461,7 +461,7 @@ def files_by_kind(space: str, kind: str, user: User = Depends(current_user)):
 
 @app.get("/api/favorites")
 def list_favorites(space: str = "personal", user: User = Depends(current_user)):
-    return {"space": space, "entries": favorites.listing(user, space)}
+    return {"space": space, "entries": media.with_created(favorites.listing(user, space))}
 
 
 @app.post("/api/favorites")
@@ -504,7 +504,7 @@ def home(user: User = Depends(current_user)):
         # Photos and videos have their own card.
         "recent": storage.recent_files(user, "personal", 8, skip_kinds=("image", "video")),
         "family": storage.recent_files(user, "family", 5),
-        "favorites": favorites.listing(user, "personal")[:6],
+        "favorites": media.with_created(favorites.listing(user, "personal")[:6]),
         "trash": storage.trash_count(user),
     }
 
@@ -513,7 +513,10 @@ def home(user: User = Depends(current_user)):
 
 @app.get("/api/collections")
 def list_collections(user: User = Depends(current_user)):
-    return {"collections": albums.listing(user)}
+    collections = albums.listing(user)
+    for col in collections:
+        media.with_created(col["covers"])
+    return {"collections": collections}
 
 
 @app.post("/api/collections")
@@ -539,6 +542,7 @@ def delete_collection(id: str, user: User = Depends(current_user)):
 @app.get("/api/collections/items")
 def collection_items(id: str, user: User = Depends(current_user)):
     data = albums.items(user, id)
+    media.with_created(data["items"])
     favs = {space: favorites.paths(user, space) for space in storage.SPACES}
     for item in data["items"]:
         item["fav"] = item["path"] in favs[item["space"]]

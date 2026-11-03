@@ -169,6 +169,9 @@ twice costs nothing.
   shared lately, your favorites and Recently deleted. Tap any card to open it.
 - **Photos**: a timeline by month. Uploads from the gallery go to `Photos/<year>/<month>`.
 - **Files**: folders and files of your private space, as a list, icons or a grid (buttons at the top right).
+- **Sort** (button at the top) by name, size, date added (when the file arrived on the NAS) or date created (for
+  photos and videos, when they were shot), either way round. It applies to every list (files, types, favorites,
+  albums and dossiers, other files on the disk) and is remembered on each device.
 - **Family photos / Shared files**: the same, shared with every Home Assistant user.
 - Drag and drop files anywhere, or press **Upload**. Large files are sent in pieces and resume by themselves
   if the connection drops.

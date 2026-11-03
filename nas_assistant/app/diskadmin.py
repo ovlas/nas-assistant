@@ -100,7 +100,7 @@ def _nas_files(mount: Path) -> Optional[int]:
         stack = [str(root / top)]
         while stack:
             folder = stack.pop()
-            for name, is_dir, _, _ in storage._listing(folder):
+            for name, is_dir, *_ in storage._listing(folder):
                 if is_dir:
                     stack.append(os.path.join(folder, name))
                 else:

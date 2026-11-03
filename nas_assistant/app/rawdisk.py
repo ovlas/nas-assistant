@@ -94,6 +94,8 @@ def list_dir(space: str, rel: str) -> List[dict]:
             "is_dir": is_dir,
             "size": 0 if is_dir else stat.st_size,
             "modified": int(stat.st_mtime),
+            "added": int(stat.st_ctime),
+            "created": int(stat.st_mtime),
             "v": stat.st_mtime_ns,
             "kind": None if is_dir else kind_of(entry.name),
         })

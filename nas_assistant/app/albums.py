@@ -80,7 +80,8 @@ def _entry(user: User, space: str, path: str) -> Optional[dict]:
         return None
     stat = full.stat()
     return {"space": space, "path": path, "name": full.name, "is_dir": False, "size": stat.st_size,
-            "modified": int(stat.st_mtime), "v": stat.st_mtime_ns, "kind": kind_of(full.name)}
+            "modified": int(stat.st_mtime), "added": int(stat.st_ctime), "v": stat.st_mtime_ns,
+            "kind": kind_of(full.name), "_full": str(full)}
 
 
 def listing(user: User) -> List[dict]:
