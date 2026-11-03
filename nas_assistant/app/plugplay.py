@@ -121,7 +121,7 @@ async def _release(option: str) -> None:
     options = {k: v for k, v in (info.get("options") or {}).items() if k != option}
     # Disks given only for their health go too when they are gone: else the add-on can't start.
     options["smart_devices"] = [d for d in options.get("smart_devices") or [] if os.path.exists(d)]
-    await grants.save_options(options)
+    await grants.release(options)  # still chosen: taken back when it returns
 
 
 async def _unplugged() -> None:
@@ -237,6 +237,27 @@ async def _plugged(added: Set[str]) -> bool:
     return False
 
 
+def _in_use_names() -> Set[str]:
+    in_use = {diskadmin.NAS_DEVICE, *(device for _, device, _, _ in diskadmin.ROLES.values())} - {""}
+    if disks.state() != "mounted":
+        in_use.discard(diskadmin.NAS_DEVICE)
+    if not diskadmin.BY_ID.is_dir():
+        return set()
+    return {str(p) for p in diskadmin.BY_ID.iterdir() if os.path.realpath(p) in in_use}
+
+
+async def _chosen_disk_back(returns: "grants.Returns") -> bool:
+    """A chosen disk unplugged and plugged back in, even one this add-on can't see (protection
+    mode on): it gets its role back. True when NAS Assistant restarts for it."""
+    chosen_now = {v for k, v in grants.chosen().items() if k in grants.DISK_OPTIONS and v}
+    if not chosen_now - _in_use_names():
+        return False  # everything chosen is in use: nothing to ask Home Assistant
+    if not returns.check(await grants.home_assistant_sees(), _in_use_names()):
+        return False
+    log.info("A disk NAS Assistant uses is back: taking it back")
+    return await grants.on_start()
+
+
 def _known() -> Dict[str, dict]:
     try:
         return json.loads(KNOWN_FILE.read_text())
@@ -311,9 +332,13 @@ async def watch() -> None:
     taken = await _plugged({i for i in known if i in remembered and _base(i) not in busy})
     if not taken and disks.state() == "missing":
         await _adopt({_base(i) for i in known if _base(i) not in busy} - {_base(i) for i in remembered})
+    returns, rounds = grants.Returns(), 0
     while True:
         await asyncio.sleep(POLL_SECONDS)
+        rounds += 1
         try:
+            if rounds % 3 == 0 and await _chosen_disk_back(returns):
+                return  # restarting to take it back
             now = _ids()
             added, gone = now - known, known - now
             known = now

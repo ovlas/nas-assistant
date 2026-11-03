@@ -213,3 +213,23 @@ def test_a_disk_that_cant_be_read_is_never_initialized(monkeypatch):
     monkeypatch.setattr(diskadmin, "_parent", lambda d: d[:-1])
     with pytest.raises(HTTPException):
         diskadmin._initialize("storage", disks.FORMAT_CONFIRM)
+
+
+def test_a_chosen_disk_is_taken_back_only_after_it_was_gone(supervisor):
+    """With protection mode on the add-on can't see a replugged disk: Home Assistant's list tells."""
+    nas = SAMSUNG + "-part2"
+    supervisor({"device": nas, "smart_devices": []}, {SAMSUNG, nas})
+    grants._remember({"device": nas})
+    returns = grants.Returns()
+    assert returns.check({SAMSUNG, nas}, in_use=set()) is False  # ejected, still plugged: left alone
+    assert returns.check(set(), in_use=set()) is False             # unplugged
+    assert returns.check({SAMSUNG, nas}, in_use=set()) is True     # plugged back in: take it back
+    assert returns.check({SAMSUNG, nas}, in_use={nas}) is False    # in use again: nothing to do
+
+
+def test_an_unplugged_disk_stays_chosen(supervisor):
+    nas = SAMSUNG + "-part2"
+    ha = supervisor({"device": nas, "smart_devices": []}, {SAMSUNG, nas})
+    grants._remember({"device": nas, "smart_devices": []})
+    run(grants.release({"smart_devices": []}))
+    assert "device" not in ha.options and grants.chosen()["device"] == nas

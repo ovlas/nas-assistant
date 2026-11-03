@@ -84,6 +84,34 @@ def _granted(disks: dict, present: Set[str]) -> dict:
     return granted
 
 
+async def release(options: dict) -> None:
+    """Options without a disk that went away: it stays chosen, and is given back when it returns."""
+    from .diskadmin import _supervisor
+    await _supervisor("POST", "/addons/self/options", {"options": options})
+
+
+async def home_assistant_sees() -> Set[str]:
+    """Every disk name Home Assistant lists now, whether this add-on may open it or not."""
+    from .diskadmin import _supervisor
+    return _present(await _supervisor("GET", "/addons/self/info"))
+
+
+class Returns:
+    """Chosen disks that went away and came back, as Home Assistant lists them. With protection
+    mode on the add-on can't see a disk it wasn't given, so it asks Home Assistant. A disk
+    must first be gone: one just ejected but still plugged in is left alone."""
+
+    def __init__(self) -> None:
+        self.away: Set[str] = set()
+
+    def check(self, listed: Set[str], in_use: Set[str]) -> bool:
+        chosen_now = {v for k, v in chosen().items() if k in DISK_OPTIONS and v}
+        waiting = chosen_now - in_use
+        back = waiting & self.away & listed
+        self.away = (self.away | (waiting - listed)) & waiting
+        return bool(back)
+
+
 async def save_options(options: dict) -> None:
     """Every change of the add-on options goes through here: the disks are remembered."""
     from .diskadmin import _supervisor
