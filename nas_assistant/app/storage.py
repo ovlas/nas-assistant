@@ -284,6 +284,48 @@ def list_dir(user: User, space: str, rel_path: str) -> List[dict]:
     return sorted(entries.values(), key=lambda e: (not e["is_dir"], e["name"].lower()))
 
 
+def tree_size(folders: List[Path]) -> Tuple[int, int]:
+    """(bytes, files) of everything inside these folders (the same folder on several disks).
+    Folder listings are cached, so asking again is quick."""
+    size = files = 0
+    stack = [str(f) for f in folders]
+    while stack:
+        folder = stack.pop()
+        for name, is_dir, length, *_ in _listing(folder):
+            if is_dir:
+                if not os.path.islink(os.path.join(folder, name)):
+                    stack.append(os.path.join(folder, name))
+            else:
+                size += length
+                files += 1
+    return size, files
+
+
+def folder_sizes(folders: List[Path]) -> dict:
+    """The size of each sub-folder of a folder, and of the folder itself."""
+    subs: Dict[str, List[Path]] = {}
+    for folder in folders:
+        for name, is_dir, *_ in _listing(str(folder)):
+            if is_dir:
+                subs.setdefault(name, []).append(folder / name)
+    sizes = {}
+    for name, paths in subs.items():
+        size, files = tree_size(paths)
+        sizes[name] = {"size": size, "files": files}
+    total, count = tree_size(folders)
+    return {"folders": sizes, "size": total, "files": count}
+
+
+def space_folder(user: User, space: str, rel_path: str) -> List[Path]:
+    """Where a folder of a space is, on each disk (its root when the path is empty)."""
+    folders = [f for f in candidates(user, space, rel_path) if f.is_dir()]
+    if not folders and not rel_path.strip("/"):
+        folders = [_space_root(user, space)]
+    if not folders:
+        raise HTTPException(404, "Folder not found")
+    return folders
+
+
 def recent_files(user: User, space: str, limit: int, skip_kinds=()) -> List[dict]:
     """The most recently changed files of a space, newest first."""
     found = ((mtime, rel, name, size, ctime) for _, name, size, mtime, rel, ctime in _files(user, space)

@@ -9,10 +9,14 @@ Every few seconds the add-on looks at /dev/disk/by-id (the host's udev names):
 - a disk in use disappears without "Eject": it is unmounted and its role released
   (so Home Assistant can still start the add-on) and remembered for when it is back;
   for the NAS disk the NAS pauses;
-- a disk never seen before appears: nothing is decided for the user. A Home
+- a disk never seen before appears while there is no NAS disk (it was swapped for this
+  one): it becomes the NAS disk on its own, as it is (only a "NAS Assistant" folder is
+  added). The old one, if it ever comes back, joins as extra storage with its files;
+- a disk never seen before appears otherwise: nothing is decided for the user. A Home
   Assistant notification and a banner in NAS Assistant ask what to use it for.
 
-Nothing here ever formats a disk or replaces a working NAS disk.
+A disk in use keeps its role: it is never taken for another one. Nothing here ever
+formats a disk or replaces a working NAS disk.
 """
 
 import asyncio
@@ -27,7 +31,7 @@ from typing import Dict, List, Set
 
 import aiohttp
 
-from . import backup, diskadmin, disks, storage
+from . import backup, diskadmin, disks, grants, storage
 
 log = logging.getLogger("uvicorn.error")
 
@@ -49,6 +53,11 @@ TEXTS = {
              "es": "El disco {name} se desconectó sin expulsarlo. Vuelve a conectarlo y NAS Assistant lo retoma solo.",
              "fr": "Le disque {name} a été débranché sans être éjecté. Rebranchez-le et NAS Assistant le reprend tout seul.",
              "de": "Die Festplatte {name} wurde ohne Auswerfen abgezogen. Schließe sie wieder an, NAS Assistant übernimmt sie selbst."},
+    "adopted": {"en": "New disk connected: {name}. There was no NAS disk, so NAS Assistant now uses this one. If the old disk comes back, its files show up again too.",
+                "it": "Nuovo disco collegato: {name}. Mancava il disco del NAS, quindi NAS Assistant ora usa questo. Se ricolleghi quello vecchio, tornano anche i suoi file.",
+                "es": "Nuevo disco conectado: {name}. Faltaba el disco del NAS, así que NAS Assistant usa ahora este. Si vuelves a conectar el antiguo, sus archivos también vuelven.",
+                "fr": "Nouveau disque branché : {name}. Le disque du NAS manquait, NAS Assistant utilise donc celui-ci. Si l'ancien revient, ses fichiers reviennent aussi.",
+                "de": "Neue Festplatte angeschlossen: {name}. Die NAS-Festplatte fehlte, also nutzt NAS Assistant jetzt diese. Kommt die alte zurück, sind auch ihre Dateien wieder da."},
     "back": {"en": "The disk {name} is connected again: its files are available again.",
              "it": "Il disco {name} è di nuovo collegato: i suoi file sono di nuovo disponibili.",
              "es": "El disco {name} vuelve a estar conectado: sus archivos están disponibles de nuevo.",
@@ -112,7 +121,7 @@ async def _release(option: str) -> None:
     options = {k: v for k, v in (info.get("options") or {}).items() if k != option}
     # Disks given only for their health go too when they are gone: else the add-on can't start.
     options["smart_devices"] = [d for d in options.get("smart_devices") or [] if os.path.exists(d)]
-    await diskadmin._supervisor("POST", "/addons/self/options", {"options": options})
+    await grants.save_options(options)
 
 
 async def _unplugged() -> None:
@@ -151,10 +160,45 @@ async def _remember_and_release(role: str, option: str, device_id: str) -> None:
         log.warning("Couldn't release the %s option: %s", option, err)
 
 
-async def _plugged(added: Set[str]) -> None:
-    """Known disks get their role back on their own; new ones are announced."""
+def _bases_in_use() -> Set[str]:
+    """The whole-disk names of the disks NAS Assistant uses now (any of their names)."""
+    in_use = {diskadmin.NAS_DEVICE, *(device for _, device, _, _ in diskadmin.ROLES.values())} - {""}
+    if not diskadmin.BY_ID.is_dir():
+        return set()
+    return {_base(str(p)) for p in diskadmin.BY_ID.iterdir() if os.path.realpath(p) in in_use}
+
+
+USABLE = ("ext4", "exfat", "ntfs", "ntfs3")
+
+
+async def _adopt(bases: Set[str]) -> bool:
+    """No NAS disk and a disk never used here: make it the NAS disk, as it is. A disk with no
+    filesystem is only announced: making it usable erases it, so the user confirms that."""
+    if disks.state() not in ("missing", "unconfigured") or not bases:
+        return False
+    found = []
+    for disk in diskadmin.overview():
+        if disk["system"] or _base(disk["id"] or "") not in bases:
+            continue
+        found += [p for p in disk["partitions"] if p["role"] == "free" and p["id"]
+                  and (p["fstype"] or "").lower() in USABLE and not p["same_disk_as_nas"]]
+    if not found:
+        return False
+    part = max(found, key=lambda p: p["size"])
+    log.info("No NAS disk and a new disk (%s): using it as the NAS disk", part["id"])
+    await diskadmin.set_role(part["id"], "nas")
+    forget_new(part["id"])
+    await _notify("adopted", part["id"])
+    return True
+
+
+async def _plugged(added: Set[str]) -> bool:
+    """Known disks get their role back on their own; new ones are announced. True when one
+    was taken (NAS Assistant then restarts)."""
     remembered = diskadmin._ejected()
     known = _known()
+    busy = _bases_in_use()
+    added = {i for i in added if _base(i) not in busy}  # a disk in use keeps its role
     for device_id in sorted(added):
         entry = remembered.get(device_id) or known.get(device_id)
         if not entry:
@@ -168,25 +212,29 @@ async def _plugged(added: Set[str]) -> None:
             info = await diskadmin._supervisor("GET", "/addons/self/info")
             options = dict(info.get("options") or {})
             options["device"] = device_id
-            await diskadmin._supervisor("POST", "/addons/self/options", {"options": options})
+            await grants.save_options(options)
             remembered.pop(device_id, None)
             diskadmin._save_ejected(remembered)
             asyncio.get_running_loop().create_task(diskadmin._restart_soon())
-            return
+            return True
         log.info("A known disk is back (%s): using it as %s", device_id, role)
         await diskadmin.set_role(device_id, role)
-        return
+        return True
     # The NAS disk paused with "Eject" and plugged back in: reactivate on its own.
     if disks.state() == "ejected" and diskadmin.NAS_DEVICE and os.path.exists(diskadmin.NAS_DEVICE):
         log.info("The ejected NAS disk is back: reactivating")
         asyncio.get_running_loop().create_task(diskadmin._restart_soon())
-        return
-    for base in sorted({_base(i) for i in added}):
-        if any(_base(i) == base for i in (*remembered, *known)) or base in new_disks:
+        return True
+    fresh = {_base(i) for i in added} - {_base(i) for i in (*remembered, *known)}
+    if await _adopt(fresh):
+        return True
+    for base in sorted(fresh):
+        if base in new_disks:
             continue
         new_disks[base] = {"id": base, "name": _label(base), "at": int(time.time())}
         log.info("New disk connected: %s", base)
         await _notify("new", base)
+    return False
 
 
 def _known() -> Dict[str, dict]:
@@ -256,10 +304,13 @@ async def watch() -> None:
     known = _ids()
     diskadmin._known_ids = diskadmin._by_id()
     remember_current()
-    # A known disk already plugged in while the add-on was stopped.
-    in_use = {diskadmin.NAS_DEVICE, *(device for _, device, _, _ in diskadmin.ROLES.values())}
-    await _plugged({i for i in known if (i in diskadmin._ejected() or i in _known())
-                    and os.path.realpath(i) not in in_use})
+    # A known disk already plugged in while the add-on was stopped, or, with no NAS disk,
+    # a new one put in its place.
+    remembered = {*diskadmin._ejected(), *_known()}
+    busy = _bases_in_use()
+    taken = await _plugged({i for i in known if i in remembered and _base(i) not in busy})
+    if not taken and disks.state() == "missing":
+        await _adopt({_base(i) for i in known if _base(i) not in busy} - {_base(i) for i in remembered})
     while True:
         await asyncio.sleep(POLL_SECONDS)
         try:

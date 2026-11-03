@@ -404,6 +404,32 @@ $("sort-btn").onclick = (e) => {
   placeMenu(menu, e.currentTarget.getBoundingClientRect());
 };
 
+// Folder sizes come after the list (adding up a big folder takes a moment): each folder
+// then shows how much it holds, and "by size" puts the biggest folders first.
+async function fillFolderSizes(entries, seq) {
+  const dirs = entries.filter((e) => e.is_dir && !e.volume);
+  if (!dirs.length) return;
+  let info;
+  try {
+    info = await api(`api/folder-sizes?${qs({ space: state.space, path: state.path })}`);
+  } catch { return; }
+  if (stale(seq)) return;
+  for (const entry of dirs) {
+    const found = info.folders[entry.name];
+    if (!found) continue;
+    entry.size = found.size;
+    if (entry.sizeEl) {
+      const text = `${formatSize(found.size)} · ${t("fileCount", { n: found.files })}`;
+      entry.sizeEl.textContent = state.layout === "list" ? formatSize(found.size) : text;
+      entry.sizeEl.title = text;
+    }
+  }
+  if (state.sort.by === "size") {
+    const list = $("files");
+    for (const entry of sortEntries(entries)) if (entry.row) list.append(entry.row);
+  }
+}
+
 async function renderFiles() {
   if (isDisk(state.space)) return renderDiskFiles();
   const root = t(state.space === "personal" ? "files" : "sharedFiles");
@@ -438,6 +464,7 @@ async function renderFiles() {
   const list = $("files");
   list.className = `file-list layout-${state.layout}`;
   for (const entry of entries) list.append(fileRow(entry));
+  if (state.kind === "all") fillFolderSizes(entries, seq);
 }
 
 const DISK_NAMES = { nas: "roleNas", storage: "roleStorage" };
@@ -470,6 +497,7 @@ async function renderDiskFiles() {
   const list = $("files");
   list.className = `file-list layout-${state.layout}`;
   for (const entry of entries) list.append(fileRow(entry));
+  if (state.space !== "disk") fillFolderSizes(entries, seq);
 }
 
 function renderChips(filters = KIND_FILTERS) {
@@ -534,6 +562,7 @@ function fileRow(entry) {
   };
   onLongPress(row, (x, y) => openMenu(entry, { left: x, right: x, top: y, bottom: y }));
 
+  entry.row = row;
   const name = el("div", "name");
   const title = el("div", "", entry.name);
   if (entry.fav) title.prepend(Object.assign(iconEl("heartFill"), { className: "fav-mark" }));
@@ -544,14 +573,18 @@ function fileRow(entry) {
     const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : t(state.space === "personal" ? "files" : "sharedFiles");
     name.append(el("div", "where", folder));
   } else if (!listLayout) {
-    name.append(el("div", "where", entry.is_dir ? t("folder") : formatSize(entry.size)));
+    const where = el("div", "where", entry.is_dir ? t("folder") : formatSize(entry.size));
+    if (entry.is_dir) entry.sizeEl = where;
+    name.append(where);
   }
   if (listLayout) {
+    const size = el("div", "meta", entry.is_dir ? "—" : formatSize(entry.size));
+    if (entry.is_dir) entry.sizeEl = size;
     row.append(
       thumb,
       name,
       el("div", "meta", entry.modified ? shortFmt.format(sortDate(entry) * 1000) : "—"),
-      el("div", "meta", entry.is_dir ? "—" : formatSize(entry.size)),
+      size,
       actions,
     );
   } else {

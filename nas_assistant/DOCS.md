@@ -154,8 +154,17 @@ NAS Assistant watches disks being plugged in and out:
   the NAS disk the NAS pauses. Unplugging while files are being written can damage them: use **Eject** when you can.
 - **A new disk is plugged in**: nothing is decided for you. A Home Assistant notification and a banner in NAS Assistant
   ask what to use it for (backup or extra storage, from the Disks page).
-- **Changing the NAS disk**: while no NAS disk is connected, the start page lists the other disks with
+- **A new disk in place of the NAS disk** (the NAS disk was taken away, another one put in): the new disk becomes the
+  NAS disk on its own, as it is: only a "NAS Assistant" folder is added to it. If the old disk comes back, it joins as
+  extra storage and its files show again. A brand new disk with no filesystem is only offered: preparing it erases it,
+  so it waits for your confirmation.
+- **Unplugged while NAS Assistant or Home Assistant is off**: NAS Assistant still starts. Home Assistant refuses to
+  start an add-on whose options name a disk that isn't there, so NAS Assistant takes its disks out of the options when
+  it stops and gives back, when it starts, those that are plugged in (with protection mode on it then restarts once,
+  a few seconds). The disks themselves stay chosen: one that comes back is used again on its own.
+- **Changing the NAS disk** yourself: while no NAS disk is connected, the start page lists the other disks with
   **Use as the NAS disk**, used as they are. The old disk's files come back when you switch back to it.
+- Every disk has one role: a disk in use as extra storage or for backups is never taken as the NAS disk.
 
 Nothing is ever formatted automatically.
 
@@ -219,6 +228,8 @@ twice costs nothing.
 - **Sort** (button at the top) by name, size, date added (when the file arrived on the NAS) or date created (for
   photos and videos, when they were shot), either way round. It applies to every list (files, types, favorites,
   albums and dossiers, other files on the disk) and is remembered on each device.
+- **Folder sizes**: each folder shows how much it holds, everything inside it at any depth, and how many files.
+  Sorting by size puts the biggest folders first.
 - **Family photos / Shared files**: the same, shared with every Home Assistant user.
 - Drag and drop files anywhere, or press **Upload**. Large files are sent in pieces and resume by themselves
   if the connection drops.

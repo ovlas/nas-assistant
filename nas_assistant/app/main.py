@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from urllib.parse import urlencode, quote
 
-from . import albums, auth, backup, cleanup, devices, diskadmin, disks, dlna, downloads, favorites, health, media, pieces, plugplay, rawdisk, storage, tv
+from . import albums, auth, backup, cleanup, devices, diskadmin, disks, dlna, downloads, favorites, grants, health, media, pieces, plugplay, rawdisk, storage, tv
 from .auth import User, admin_user, avatar, current_user
 from .kinds import media_kind
 
@@ -66,7 +66,16 @@ def stop_tv_media_server():
 
 @app.on_event("startup")
 async def start_disk_watch():
+    # The chosen disks that are plugged in go back in the options first (restarting once if
+    # Home Assistant must grant them); then plugged and unplugged disks are followed.
+    if await grants.on_start():
+        return
     asyncio.get_running_loop().create_task(plugplay.watch())
+
+
+@app.on_event("shutdown")
+async def release_disks():
+    await grants.on_stop()
 
 
 @app.on_event("startup")
@@ -404,7 +413,7 @@ async def dlna_switch(request: Request, user: User = Depends(admin_user)):
     info = await diskadmin._supervisor("GET", "/addons/self/info")
     options = dict(info.get("options") or {})
     options["dlna"] = on == "1"
-    await diskadmin._supervisor("POST", "/addons/self/options", {"options": options})
+    await grants.save_options(options)
     asyncio.get_running_loop().create_task(diskadmin._restart_soon())
     return {"ok": True, "restarting": True}
 
@@ -500,6 +509,17 @@ async def list_files(space: str = "personal", path: str = "", user: User = Depen
     for entry in entries:
         entry["fav"] = os.path.normpath(os.path.join(path.strip("/"), entry["name"])) in favs
     return {"space": space, "path": path, "entries": entries}
+
+
+@app.get("/api/folder-sizes")
+async def folder_sizes(space: str = "personal", path: str = "", user: User = Depends(current_user)):
+    """How big each sub-folder is (all it holds, at any depth): the list shows it next to the folders."""
+    if space.startswith(rawdisk.PREFIX):
+        _source(user, space, "")
+        folders = [rawdisk.resolve(space, path)]
+    else:
+        folders = storage.space_folder(user, space, path)
+    return await run_in_threadpool(storage.folder_sizes, folders)
 
 
 @app.get("/api/files/by-kind")

@@ -1,11 +1,19 @@
 #!/usr/bin/with-contenv bashio
 set -e
 
-# Disk picked from the device list in the Configuration tab. The Supervisor grants
-# the add-on access to that one disk, so it works with protection mode on.
+# Disks picked in the Configuration tab or in NAS Assistant. The Supervisor grants the
+# add-on access to them, so it works with protection mode on. NAS Assistant takes them out
+# of the options when it stops (a disk unplugged meanwhile would stop Home Assistant from
+# starting it) and remembers them in /data/disks.json: an option left empty reads it there.
 # Unset optional options come back as "null": read them only when they have a value.
-DEVICE_OPTION=""
-if bashio::config.has_value 'device'; then DEVICE_OPTION="$(bashio::config 'device')"; fi
+chosen_disk() {
+    if bashio::config.has_value "$1"; then
+        bashio::config "$1"
+    elif [ -f /data/disks.json ]; then
+        jq -r --arg o "$1" '.[$o] // empty' /data/disks.json 2>/dev/null || true
+    fi
+}
+DEVICE_OPTION="$(chosen_disk device)"
 DISK="$(bashio::config 'disk')"
 # Disk chosen from the setup wizard, used when the option is left empty.
 if ! bashio::var.has_value "${DISK}" && [ -f /data/disk.json ]; then
@@ -58,8 +66,10 @@ fi
 # missing, same, uninitialized), <prefix>_DEVICE and <prefix>_FSTYPE.
 mount_extra() {
     local option="$1" target="$2" prefix="$3" device="" fstype="" state=none
-    if bashio::config.has_value "${option}"; then
-        device="$(readlink -f "$(bashio::config "${option}")" || true)"
+    local chosen
+    chosen="$(chosen_disk "${option}")"
+    if [ -n "${chosen}" ]; then
+        device="$(readlink -f "${chosen}" || true)"
         if [ -z "${device}" ] || [ ! -b "${device}" ]; then
             bashio::log.error "Disk for ${option} not found."
             state=missing

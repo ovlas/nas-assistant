@@ -25,7 +25,7 @@ from typing import Dict, List, Optional
 import aiohttp
 from fastapi import HTTPException
 
-from . import backup, disks, health, storage
+from . import backup, disks, grants, health, storage
 
 log = logging.getLogger("uvicorn.error")
 
@@ -212,6 +212,7 @@ async def _supervisor(method: str, path: str, body: Optional[dict] = None) -> di
 async def _restart_soon() -> None:
     """Restart the add-on after the response went out, so the page gets its answer."""
     await asyncio.sleep(1.5)
+    grants.keep_on_next_stop()  # the disks it needs stay in the options
     try:
         await _supervisor("POST", "/addons/self/restart")
     except Exception as err:  # the restart itself cuts this request short
@@ -237,7 +238,7 @@ async def allow_health() -> List[str]:
     info = await _supervisor("GET", "/addons/self/info")
     options = dict(info.get("options") or {})
     options["smart_devices"] = wanted
-    await _supervisor("POST", "/addons/self/options", {"options": options})
+    await grants.save_options(options)
     asyncio.get_running_loop().create_task(_restart_soon())
     return wanted
 
@@ -267,7 +268,7 @@ async def set_role(device_id: str, role: Optional[str]) -> None:
             options.pop(option)
     if role:
         options["device" if role == "nas" else ROLES[role][0]] = device_id
-    await _supervisor("POST", "/addons/self/options", {"options": options})
+    await grants.save_options(options)
     ejected = _ejected()
     if ejected.pop(device_id, None):
         _save_ejected(ejected)
@@ -335,11 +336,11 @@ async def eject(role: str) -> None:
     info = await _supervisor("GET", "/addons/self/info")
     options = dict(info.get("options") or {})
     released = {k: v for k, v in options.items() if k != option}
-    # Release the role first: without the option, Home Assistant won't stop the add-on from
-    # starting while the disk is unplugged. If unmounting then fails, the role is given back.
-    await _supervisor("POST", "/addons/self/options", {"options": released})
+    # Release the role first, so it is not given back on the next start while the disk is away.
+    # If unmounting then fails, the role is given back.
+    await grants.save_options(released)
     if not await asyncio.get_running_loop().run_in_executor(None, _unmount, MOUNTS[role]):
-        await _supervisor("POST", "/addons/self/options", {"options": options})
+        await grants.save_options(options)
         raise HTTPException(409, "The disk is in use: try again in a moment")
     ejected = _ejected()
     ejected[device_id] = {"role": role, "at": int(time.time())}
