@@ -2060,6 +2060,8 @@ async function runUploads() {
   await pickUploadRoute();
   let job;
   while ((job = uploads.jobs.find((j) => j.state === "waiting"))) {
+    // Back on Ingress after a hiccup (e.g. NAS Assistant restarting): try the direct way again.
+    if (!uploads.base) { uploads.directFailures = 0; await pickUploadRoute(); }
     job.state = "uploading";
     paintUploads();
     try {
