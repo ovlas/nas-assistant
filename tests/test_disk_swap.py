@@ -160,3 +160,44 @@ def test_a_disk_in_use_keeps_its_role(monkeypatch, tmp_path):
     monkeypatch.setattr(plugplay, "_known", lambda: {part["id"]: {"role": "nas", "at": 1}})
     assert run(plugplay._plugged({part["id"]})) is False
     assert taken == []
+
+
+def test_eject_pauses_the_tv_server_first(monkeypatch):
+    """The TV server keeps files open on the disk: Eject stops it first, no matter what."""
+    from fastapi import HTTPException
+    from nas_assistant.app import dlna
+
+    events = []
+
+    async def fake_halt():
+        events.append("tv off")
+    monkeypatch.setattr(dlna, "halt", fake_halt)
+    monkeypatch.setattr(dlna, "resume", lambda: events.append("tv on"))
+
+    def eject_ok():
+        events.append("ejected")
+    monkeypatch.setattr(diskadmin, "_eject_nas", eject_ok)
+    asyncio.run(diskadmin.eject("nas"))
+    assert events == ["tv off", "ejected"]  # the disk is gone: the TVs wait for it
+
+    events.clear()
+
+    def eject_busy():
+        events.append("busy")
+        raise HTTPException(409, "The disk is in use: try again in a moment")
+    monkeypatch.setattr(diskadmin, "_eject_nas", eject_busy)
+    with pytest.raises(HTTPException):
+        asyncio.run(diskadmin.eject("nas"))
+    assert events == ["tv off", "busy", "tv on"]  # the disk stays: so do the TVs
+
+
+def test_halt_waits_for_the_tv_server_to_let_go(monkeypatch):
+    from nas_assistant.app import dlna
+
+    async def go():
+        proc = await asyncio.create_subprocess_exec("sleep", "30")
+        monkeypatch.setattr(dlna, "_process", proc)
+        await dlna.halt()
+        return proc.returncode
+    assert asyncio.run(go()) is not None
+    assert dlna._halted

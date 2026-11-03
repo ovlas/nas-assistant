@@ -25,7 +25,7 @@ from typing import Dict, List, Optional
 import aiohttp
 from fastapi import HTTPException
 
-from . import backup, disks, grants, health, storage
+from . import backup, disks, dlna, grants, health, storage
 
 log = logging.getLogger("uvicorn.error")
 
@@ -324,7 +324,13 @@ async def eject(role: str) -> None:
     lose their role, remembered to put them back in one tap when plugged in again; the NAS
     disk pauses the NAS until it is reactivated."""
     if role == "nas":
-        return await asyncio.get_running_loop().run_in_executor(None, _eject_nas)
+        # The TV media server is paused on its own: it keeps files open on the disk.
+        await dlna.halt()
+        try:
+            return await asyncio.get_running_loop().run_in_executor(None, _eject_nas)
+        except HTTPException:
+            dlna.resume()  # the disk stays: so do the TVs
+            raise
     if role not in ROLES:
         raise HTTPException(400, "Unknown role")
     option, device, state, _ = ROLES[role]
@@ -332,6 +338,15 @@ async def eject(role: str) -> None:
         raise HTTPException(400, "Disk not selectable")
     if role == "backup" and backup._lock.locked():
         raise HTTPException(409, "A backup is running: wait for it to finish")
+    try:
+        if role == "storage":
+            await dlna.halt()  # it shows the Family folder of this disk too
+        await _eject_extra(role, option, device)
+    finally:
+        dlna.resume()  # back for the TVs, with the disks still there
+
+
+async def _eject_extra(role: str, option: str, device: str) -> None:
     device_id = _by_id().get(device, "")
     info = await _supervisor("GET", "/addons/self/info")
     options = dict(info.get("options") or {})

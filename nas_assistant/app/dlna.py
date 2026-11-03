@@ -23,6 +23,7 @@ ENABLED = os.environ.get("NAS_DLNA", "false") == "true"
 NAME = "NAS Assistant"
 PORT = 8200
 _process: Optional[asyncio.subprocess.Process] = None
+_halted = False  # stopped on purpose (to eject a disk): not an error
 
 
 def _folders() -> list:
@@ -62,9 +63,10 @@ def status() -> dict:
 
 async def start() -> None:
     """Start the media server, if it is on and the NAS disk is there."""
-    global _process
+    global _process, _halted
     if not ENABLED or disks.state() != "mounted":
         return
+    _halted = False
     # Its database lives on the NAS disk: Home Assistant backups stay small.
     work = disks.NAS_ROOT / ".nas_assistant" / "dlna"
     work.mkdir(parents=True, exist_ok=True)
@@ -78,10 +80,32 @@ async def start() -> None:
         return
     log.info("TV media server on: the TVs of the house find \"%s\" (Family only)", NAME)
     _, err = await _process.communicate()
-    if _process.returncode:
+    if _process.returncode and not _halted:
         log.warning("TV media server stopped (%s): %s", _process.returncode, (err or b"").decode(errors="replace")[-500:])
 
 
 def stop() -> None:
     if _process and _process.returncode is None:
         _process.terminate()
+
+
+async def halt() -> None:
+    """Stop the media server and wait until it let go of the disks: it keeps its database and
+    the Family folders open, and a disk with open files can't be ejected."""
+    global _halted
+    if not _process or _process.returncode is not None:
+        return
+    _halted = True
+    _process.terminate()
+    try:
+        await asyncio.wait_for(_process.wait(), 10)
+    except asyncio.TimeoutError:
+        _process.kill()
+        await _process.wait()
+    log.info("TV media server paused to eject a disk")
+
+
+def resume() -> None:
+    """Start it again with the disks that are there now (after an eject)."""
+    if _halted:
+        asyncio.get_running_loop().create_task(start())

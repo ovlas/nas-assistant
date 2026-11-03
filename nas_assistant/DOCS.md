@@ -40,6 +40,8 @@ what each one is used for and how full it is. A free disk can be given a role, a
   its own trash. It is included in the nightly backup. A disk that was used by NAS Assistant before (also as the NAS
   disk) brings its files back as they were.
 - **Eject safely**, next to each disk's name: finishes writes and unmounts the disk so you can unplug it.
+  The TV media server pauses on its own while a disk is ejected (it keeps files open on it) and is back right away
+  for the disks still connected.
   For the backup and extra-storage disks, plug it back in and **Put back as …** restores its role in one tap.
   Ejecting the NAS disk asks twice and pauses the NAS for everyone; plug it back in and press **Reactivate**.
 - **Use … instead** switches a disk between the two roles, **Stop using it** frees it. Changing roles never erases
