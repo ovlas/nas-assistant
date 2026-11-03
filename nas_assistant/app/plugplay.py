@@ -110,6 +110,8 @@ async def _language() -> None:
 async def _release(option: str) -> None:
     info = await diskadmin._supervisor("GET", "/addons/self/info")
     options = {k: v for k, v in (info.get("options") or {}).items() if k != option}
+    # Disks given only for their health go too when they are gone: else the add-on can't start.
+    options["smart_devices"] = [d for d in options.get("smart_devices") or [] if os.path.exists(d)]
     await diskadmin._supervisor("POST", "/addons/self/options", {"options": options})
 
 

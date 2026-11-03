@@ -1,5 +1,5 @@
 name: NAS Assistant
-version: "0.27.1"
+version: "0.27.2"
 slug: nas_assistant
 description: Your family cloud, at home. A private space for every Home Assistant user, on a disk you choose
 url: https://github.com/ovlas/nas-assistant
@@ -46,6 +46,7 @@ options:
   backup_keep_days: 30
   log_level: info
   dlna: false
+  smart_devices: []
 schema:
   device: device(subsystem=block)?
   disk: str?
@@ -58,3 +59,7 @@ schema:
   public_url: url?
   log_level: list(debug|info|warning|error)
   dlna: bool?
+  # Whole disks, only to read their health (SMART): with protection mode on the add-on
+  # otherwise gets just the partitions it uses. Set from the Disks page.
+  smart_devices:
+    - device(subsystem=block)

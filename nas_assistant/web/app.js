@@ -1237,7 +1237,14 @@ async function renderDisks() {
     try { await api("api/disks/health", { method: "POST" }); } catch (err) { alert(err.message); }
     render();
   };
-  page.append(checkNow, el("p", "notice hint", t("diskNotListed")));
+  page.append(checkNow);
+  // Unreadable health with protection mode on: the add-on only has the partitions.
+  if (info.disks.some((d) => d.health && d.health.state === "unknown")) {
+    const allow = el("button", "btn", t("healthAllow"));
+    allow.onclick = () => diskAction(t("healthAllowConfirm"), () => post("api/disks/health/allow", {}));
+    page.append(el("p", "card-sub", t("healthAllowText")), allow);
+  }
+  page.append(el("p", "notice hint", t("diskNotListed")));
   const tvCard = await dlnaCard();
   if (tvCard && !stale(seq)) page.append(tvCard);
 }

@@ -218,6 +218,30 @@ async def _restart_soon() -> None:
         log.info("Restart requested: %s", err)
 
 
+async def allow_health() -> List[str]:
+    """Ask Home Assistant for the whole disks NAS Assistant uses, to read their health only
+    (with protection mode on it gets just the partitions). Restarts to apply."""
+    in_use = {NAS_DEVICE, *(device for _, device, _, _ in ROLES.values())} - {""}
+    disks_in_use = {_parent(d) for d in in_use}
+    # The disk's own name (ata-…, as Home Assistant lists it), not the USB box's.
+    names = sorted((p for p in BY_ID.iterdir() if not p.name.startswith(("wwn-", "nvme-eui."))
+                    and "-part" not in p.name and os.path.realpath(p) in disks_in_use),
+                   key=lambda p: (not p.name.startswith(("ata-", "nvme-")), p.name)) if BY_ID.is_dir() else []
+    wanted, seen = [], set()
+    for p in names:
+        if os.path.realpath(p) not in seen:
+            seen.add(os.path.realpath(p))
+            wanted.append(str(p))
+    if not wanted:
+        raise HTTPException(400, "Disk not selectable")
+    info = await _supervisor("GET", "/addons/self/info")
+    options = dict(info.get("options") or {})
+    options["smart_devices"] = wanted
+    await _supervisor("POST", "/addons/self/options", {"options": options})
+    asyncio.get_running_loop().create_task(_restart_soon())
+    return wanted
+
+
 async def set_role(device_id: str, role: Optional[str]) -> None:
     """Give a disk the backup or storage role, move it from one role to the other,
     or (role None) stop using it. Role "nas" makes it the NAS disk, only while there is no
