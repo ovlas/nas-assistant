@@ -134,6 +134,9 @@ def _inside(root: Path, rel: str) -> Path:
     return target
 
 
+KEEP_FREE = 20 * 1024 ** 3  # past this, new files go to the disk with most room
+
+
 def _free(path: Path) -> int:
     try:
         return shutil.disk_usage(path).free
@@ -159,17 +162,17 @@ def candidates(user: User, space: str, rel_path: str) -> List[Path]:
 
 def resolve(user: User, space: str, rel_path: str) -> Path:
     """Map a path of the web UI to a real path, refusing anything outside the space.
-    An existing path is found on whichever disk has it; a new one goes where its
-    parent folder already is, or else to the disk with the most free space."""
+    An existing path is found on whichever disk has it. A new one goes to the NAS disk
+    while it has room, even if its folder so far is only on the extra disk (the folder is
+    made there too, and the merged view shows one folder): the extra disk may be an old
+    USB 2 drive, and writing there crawls. When the NAS disk is nearly full: most room."""
     found = candidates(user, space, rel_path)
     if found:
         return found[0]
     rel = rel_path.strip("/")
-    pool = roots(user, space)
-    parent = os.path.dirname(rel)
-    with_parent = [root for _, root in pool if not parent or (root / parent).is_dir()]
-    choice = max(with_parent or [root for _, root in pool], key=_free)
-    return _inside(choice, rel)
+    pool = [root for _, root in roots(user, space)]  # the NAS disk comes first
+    roomy = [root for root in pool if _free(root) > KEEP_FREE]
+    return _inside(roomy[0] if roomy else max(pool, key=_free), rel)
 
 
 def to_rel(user: User, space: str, full: Path) -> str:

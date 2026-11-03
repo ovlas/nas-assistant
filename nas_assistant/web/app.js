@@ -1833,7 +1833,7 @@ $("v-stage").addEventListener("touchend", (e) => {
 
 const CHUNK_MIN = 1024 * 1024;
 const CHUNK_MAX = 16 * 1024 * 1024;
-const STALL_MS = 45 * 1000;
+const STALL_MS = 20 * 1000;
 const GIVE_UP_MS = 10 * 60 * 1000;  // a file waits this long for the network before "not uploaded"
 const QUEUE_KEY = "nas-upload-queue";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
