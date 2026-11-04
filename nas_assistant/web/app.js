@@ -246,7 +246,7 @@ function render() {
   if (state.view === "collection") return renderCollection();
   if (state.view === "trash") return renderTrash();
   if (state.view === "cleanup") return renderCleanup();
-  return state.view === "photos" ? renderGallery() : renderFiles();
+  return isGalleryView() ? renderGallery() : renderFiles();
 }
 
 // --- Gallery ------------------------------------------------------------------
@@ -258,28 +258,33 @@ const monthKey = (taken) => new Date(taken * 1000).toISOString().slice(0, 7);  /
 const monthTitle = (key) => capitalize(new Intl.DateTimeFormat(LOCALE, { month: "long", year: "numeric", timeZone: "UTC" })
   .format(new Date(`${key}-15T00:00:00Z`)));
 
+const isGalleryView = () => state.view === "photos" || state.view === "videos";
+
 async function renderGallery() {
   const where = t(state.space === "personal" ? "mySpace" : "family");
-  setHeader(t(state.space === "personal" ? "photos" : "familyPhotos"), where);
+  const onlyVideos = state.view === "videos";
+  setHeader(t(onlyVideos ? (state.space === "personal" ? "videos" : "familyVideos") : state.space === "personal" ? "photos" : "familyPhotos"), where);
   const seq = renderSeq;
   const query = (offset) => `api/photos?${qs({ space: state.space, offset, limit: GALLERY_PAGE,
-    ...(state.kind === "favorite" ? { favorite: 1 } : {}) })}`;
+    ...(state.kind === "favorite" ? { favorite: 1 } : {}), ...(onlyVideos ? { kind: "video" } : {}) })}`;
   let first;
   try {
     first = await api(query(0));
   } catch (err) {
-    return stale(seq) || showEmpty(t("photosLoadError"), err.message);
+    return stale(seq) || showEmpty(t(onlyVideos ? "videosLoadError" : "photosLoadError"), err.message);
   }
   if (stale(seq)) return;
   renderChips(GALLERY_FILTERS);
   state.items = [];
   $("tv-btn").hidden = !first.total;
   setHeader($("title").textContent,
-    [where, t("photoCount", { n: first.images }), first.videos ? t("videoCount", { n: first.videos }) : ""].filter(Boolean).join(" · "));
+    [where, onlyVideos ? "" : t("photoCount", { n: first.images }), first.videos || onlyVideos ? t("videoCount", { n: first.videos }) : ""].filter(Boolean).join(" · "));
   if (!first.total) {
     return state.kind === "favorite"
       ? showEmpty(t("noFavTitle"), t("noFavText"))
-      : showEmpty(t("noPhotosTitle"), t("noPhotosText"));
+      : onlyVideos
+        ? showEmpty(t("noVideosTitle"), t("noVideosText"))
+        : showEmpty(t("noPhotosTitle"), t("noPhotosText"));
   }
 
   const gallery = $("gallery");
@@ -2514,7 +2519,7 @@ function upload(items) {
   // Files of an unfinished upload go back where they were going; new ones to this folder.
   const saved = new Map(savedQueue().map((s) => [s.key, s]));
   const now = new Date();
-  const here = state.view === "photos"
+  const here = isGalleryView()
     ? join(t("photosFolder"), String(now.getFullYear()), String(now.getMonth() + 1).padStart(2, "0"))
     : state.path;
   const space = isDisk(state.space) ? "personal" : state.space;

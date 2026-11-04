@@ -34,7 +34,7 @@ what each one is used for and how full it is. A free disk can be given a role, a
 
 - **Use for backups**: every night the NAS is copied onto it, on its own (see below).
 - **Use as extra storage**: more room, joined to the NAS disk. Its files appear in the same *Files*,
-  *Shared files* and *Photos* as the others, with the same per-user privacy, and its free space adds up. New files go
+  *Shared files*, *Photos* and *Videos* as the others, with the same per-user privacy, and its free space adds up. New files go
   to the NAS disk while it has more than 20 GB free (usually the faster disk: an extra disk may be an old USB 2
   drive), then to the disk with the most free space; files can be moved anywhere. Each disk keeps
   its own trash. It is included in the nightly backup. A disk that was used by NAS Assistant before (also as the NAS

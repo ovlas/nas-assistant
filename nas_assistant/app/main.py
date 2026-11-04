@@ -638,13 +638,16 @@ def remove_from_collection(id: str, space: str, path: str, user: User = Depends(
 
 @app.get("/api/photos")
 def photos(space: str = "personal", offset: int = 0, limit: int = 0, favorite: bool = False,
-           user: User = Depends(current_user)):
+           kind: str = "", user: User = Depends(current_user)):
     """The gallery, newest first. With `limit`, one page of it (the page asks for more while
-    scrolling); the first page also says how many items each month has."""
+    scrolling); the first page also says how many items each month has. With `kind`, only
+    the images or only the videos."""
     items = media.gallery(user, space)
     favs = favorites.paths(user, space)
     if favorite:
         items = [i for i in items if i["path"] in favs]
+    if kind:
+        items = [i for i in items if i["kind"] == kind]
     page = items[offset:offset + limit] if limit else items
     result = {"space": space, "items": [{**i, "fav": i["path"] in favs} for i in page],
               "offset": offset, "total": len(items)}

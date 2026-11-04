@@ -6,6 +6,7 @@
 const MESSAGES = {
   en: {
     mySpace: "My space", family: "Family", photos: "Photos", files: "Files",
+    videos: "Videos", familyVideos: "Family videos", videosLoadError: "Can't load the videos", noVideosTitle: "No videos yet", noVideosText: "Drag videos here, or press Upload.",
     familyPhotos: "Family photos", familyShort: "Family", sharedFiles: "Shared files", sharedShort: "Shared",
     diskLoading: "Disk…", newFolder: "New folder", upload: "Upload", dropHint: "Drop to upload",
     close: "Close", downloadOriginal: "Download original", download: "Download", moveToTrash: "Move to trash",
@@ -69,6 +70,7 @@ const MESSAGES = {
   },
   it: {
     mySpace: "Il mio spazio", family: "Famiglia", photos: "Foto", files: "File",
+    videos: "Video", familyVideos: "Video di famiglia", videosLoadError: "Impossibile caricare i video", noVideosTitle: "Ancora nessun video", noVideosText: "Trascina qui i video, oppure premi Carica.",
     familyPhotos: "Foto di famiglia", familyShort: "Famiglia", sharedFiles: "File condivisi", sharedShort: "Condivisi",
     diskLoading: "Disco…", newFolder: "Nuova cartella", upload: "Carica", dropHint: "Rilascia per caricare",
     close: "Chiudi", downloadOriginal: "Scarica originale", download: "Scarica", moveToTrash: "Sposta nel cestino",
@@ -153,6 +155,7 @@ const MESSAGES = {
   },
   es: {
     mySpace: "Mi espacio", family: "Familia", photos: "Fotos", files: "Archivos",
+    videos: "Vídeos", familyVideos: "Vídeos de familia", videosLoadError: "No se pueden cargar los vídeos", noVideosTitle: "Todavía no hay vídeos", noVideosText: "Arrastra aquí vídeos, o pulsa Subir.",
     familyPhotos: "Fotos de familia", familyShort: "Familia", sharedFiles: "Archivos compartidos", sharedShort: "Compartidos",
     diskLoading: "Disco…", newFolder: "Nueva carpeta", upload: "Subir", dropHint: "Suelta para subir",
     close: "Cerrar", downloadOriginal: "Descargar original", download: "Descargar", moveToTrash: "Mover a la papelera",
@@ -228,6 +231,7 @@ const MESSAGES = {
   },
   fr: {
     mySpace: "Mon espace", family: "Famille", photos: "Photos", files: "Fichiers",
+    videos: "Vidéos", familyVideos: "Vidéos de famille", videosLoadError: "Impossible de charger les vidéos", noVideosTitle: "Pas encore de vidéos", noVideosText: "Glissez ici des vidéos, ou appuyez sur Importer.",
     familyPhotos: "Photos de famille", familyShort: "Famille", sharedFiles: "Fichiers partagés", sharedShort: "Partagés",
     diskLoading: "Disque…", newFolder: "Nouveau dossier", upload: "Importer", dropHint: "Déposez pour importer",
     close: "Fermer", downloadOriginal: "Télécharger l'original", download: "Télécharger", moveToTrash: "Mettre à la corbeille",
@@ -303,6 +307,7 @@ const MESSAGES = {
   },
   de: {
     mySpace: "Mein Bereich", family: "Familie", photos: "Fotos", files: "Dateien",
+    videos: "Videos", familyVideos: "Familienvideos", videosLoadError: "Die Videos können nicht geladen werden", noVideosTitle: "Noch keine Videos", noVideosText: "Videos hierher ziehen oder auf Hochladen tippen.",
     familyPhotos: "Familienfotos", familyShort: "Familie", sharedFiles: "Geteilte Dateien", sharedShort: "Geteilt",
     diskLoading: "Festplatte…", newFolder: "Neuer Ordner", upload: "Hochladen", dropHint: "Zum Hochladen loslassen",
     close: "Schließen", downloadOriginal: "Original herunterladen", download: "Herunterladen", moveToTrash: "In den Papierkorb",
