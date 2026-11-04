@@ -7,6 +7,8 @@
 A local alternative to iCloud Family Sharing: every Home Assistant user gets a private space,
 plus a folder shared with the whole family, on a dedicated disk of your choice.
 
+<p align="center"><img src="docs/screenshots/home.jpg" width="900" alt="The NAS Assistant home page: storage, latest photos, recent files and what the family shared"></p>
+
 - 🔒 A private space for every HA user, no new accounts
 - 🏠 iCloud-style welcome page: storage, latest photos, recent files, family activity
 - 🖼️ Apple-style photo and video gallery: monthly timeline, full-screen viewer, iPhone HEIC photos
@@ -28,6 +30,32 @@ plus a folder shared with the whole family, on a dedicated disk of your choice.
 - 📲 Background uploads from the iPhone with an iOS Shortcut (Share menu or nightly automation)
 - 📱 [iPhone and Android app](https://github.com/ovlas/nas-assistant-app) with automatic camera-roll backup, paired with a one-time QR code (early version, not in the stores yet)
 - 🏠 Everything stays local
+
+## Screenshots
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/photos.jpg" alt="Photo gallery with a monthly timeline"><br><b>Photos</b>: a monthly timeline of everything on the disk</td>
+    <td width="50%"><img src="docs/screenshots/select.jpg" alt="Several photos selected, with the Download, Move, Collection, Favorites and Delete actions"><br><b>Select</b>: pick many items, then download, move, collect, favorite or delete them</td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/viewer.jpg" alt="Full-screen photo viewer"><br><b>Viewer</b>: full screen, with favorites, albums and watching on the TV</td>
+    <td><img src="docs/screenshots/collections.jpg" alt="Albums and dossiers"><br><b>Collections</b>: albums and dossiers, personal or shared with the family</td>
+  </tr>
+  <tr>
+    <td colspan="2"><img src="docs/screenshots/files.jpg" alt="File list filtered by type, with folders and favorites"><br><b>Files</b>: folders, types and favorites</td>
+  </tr>
+</table>
+
+Made for the phone too:
+
+<p align="center">
+  <img src="docs/screenshots/phone-home.jpg" width="260" alt="Home page on a phone">
+  <img src="docs/screenshots/phone-photos.jpg" width="260" alt="Photo gallery on a phone">
+  <img src="docs/screenshots/phone-select.jpg" width="260" alt="Selecting photos on a phone">
+</p>
+
+<sub>Screenshots use demo data: the pictures are drawn for the occasion, the documents are dummies and the disk size is simulated.</sub>
 
 ## Installation
 
