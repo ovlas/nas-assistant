@@ -3,7 +3,7 @@
 Like albums in Apple Photos, a collection only groups files: it never moves or
 copies them, the same file can be in several collections, and removing it from
 one leaves the file where it is. Items follow their files when they are renamed
-or moved, and leave when the file goes to the trash.
+or moved, leave when the file goes to the trash, and come back if it is restored.
 
 A collection is personal (only its owner sees it) or shared with the family.
 Shared collections only take files from the Family space, so nobody ever sees
@@ -184,8 +184,26 @@ def moved(user: User, space: str, old: str, to_space: str, new: str) -> None:
                              (cid, to_space, new + path[len(old):], int(time.time())))
 
 
-def removed(user: User, space: str, path: str) -> None:
+def removed(user: User, space: str, path: str) -> List[list]:
+    """Take a trashed item out of its collections; returns what was there, for restored()."""
     path = _clean(path)
+    where = f"{_SCOPE} AND (path = ? OR path LIKE ?)"
+    args = (space, user.id, path, path + "/%")
     with _db() as conn:
-        conn.execute(f"DELETE FROM collection_items WHERE {_SCOPE} AND (path = ? OR path LIKE ?)",
-                     (space, user.id, path, path + "/%"))
+        rows = conn.execute(f"SELECT collection, path, added FROM collection_items WHERE {where}", args).fetchall()
+        conn.execute(f"DELETE FROM collection_items WHERE {where}", args)
+    return [list(row) for row in rows]
+
+
+def restored(user: User, links: List[list], space: str, old: str, new: str) -> None:
+    """Back in the collections it was in, under the name it came back with."""
+    old, new = _clean(old), _clean(new)
+    with _db() as conn:
+        for cid, path, added in links:
+            found = conn.execute("SELECT shared, owner FROM collections WHERE id = ?", (cid,)).fetchone()
+            if not found:  # the collection was deleted in the meantime
+                continue
+            shared, owner = found
+            if space == "family" or (not shared and owner == user.id):
+                conn.execute("INSERT OR IGNORE INTO collection_items VALUES (?, ?, ?, ?)",
+                             (cid, space, new + path[len(old):], added))

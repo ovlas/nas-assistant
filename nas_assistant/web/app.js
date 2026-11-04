@@ -285,7 +285,7 @@ async function renderGallery() {
   // Picking works on the whole gallery, also on the pages not loaded yet.
   picking.load = async () => {
     const { items } = await api(`api/photos?${qs({ space: state.space, ...(state.kind === "favorite" ? { favorite: 1 } : {}), ...(onlyVideos ? { kind: "video" } : {}) })}`);
-    return items.map((i) => ({ path: i.path, size: i.size, day: new Date(i.taken * 1000).toISOString().slice(0, 10) }));
+    return items.map((i) => ({ path: i.path, size: i.size, fav: i.fav, day: new Date(i.taken * 1000).toISOString().slice(0, 10) }));
   };
   $("tv-btn").hidden = !first.total;
   setHeader($("title").textContent,
@@ -378,9 +378,9 @@ function tile(item, index) {
   return node;
 }
 
-// --- Picking many items, to download them together ------------------------------------
+// --- Picking many items, to act on them together --------------------------------------
 
-const picking = { on: false, load: null, items: [], picked: new Set(), nodes: new Map(), monthButtons: new Map() };
+const picking = { on: false, busy: false, load: null, items: [], picked: new Set(), nodes: new Map(), monthButtons: new Map() };
 const pickMonthOf = (item) => item.day.slice(0, 7);
 
 // A tile or a row: while picking, a click picks it instead of opening it.
@@ -392,7 +392,7 @@ function pickable(node, path, open) {
   node.classList.toggle("picked", picking.picked.has(path));
   node.onclick = () => {
     if (!picking.on) return open();
-    setPicked([path], !picking.picked.has(path));
+    if (!picking.busy) setPicked([path], !picking.picked.has(path));
   };
 }
 
@@ -412,6 +412,7 @@ function toggleMonth(key) {
 
 function stopPicking() {
   picking.on = false;
+  picking.busy = false;
   picking.load = null;
   picking.items = [];
   picking.picked.clear();
@@ -419,6 +420,17 @@ function stopPicking() {
   picking.monthButtons.clear();
   document.body.classList.remove("picking");
   $("select-bar").hidden = true;
+  $("select-bar").classList.remove("busy");
+  $("select-btn").disabled = false;
+}
+
+// Out of picking, with the page and its scroll position as they are.
+function leavePicking() {
+  setPicked([...picking.picked], false);
+  picking.on = false;
+  document.body.classList.remove("picking");
+  $("select-bar").hidden = true;
+  $("select-btn").hidden = false;
   $("select-btn").disabled = false;
 }
 
@@ -482,33 +494,45 @@ function drawPickingBar() {
   count.id = "pick-count";
   const cancel = el("button", "btn", t("cancel"));
   cancel.id = "pick-cancel";
-  cancel.onclick = () => {
-    setPicked([...picking.picked], false);
-    picking.on = false;
-    document.body.classList.remove("picking");
-    bar.hidden = true;
-    $("select-btn").hidden = false;
-    $("select-btn").disabled = false;
-  };
-  const save = el("button", "btn primary");
-  save.id = "pick-save";
-  save.append(iconEl("download"), el("span", "", t("download")));
-  save.onclick = downloadPicked;
+  cancel.onclick = leavePicking;
 
+  const action = (id, iconName, label, onclick, kind = "") => {
+    const b = el("button", `btn pick-action ${kind}`);
+    b.id = id;
+    b.append(iconEl(iconName), el("span", "", label));
+    b.onclick = onclick;
+    return b;
+  };
   const tools = el("div", "pick-row");
   tools.append(all, month, fromWrap, toWrap, add);
-  const actions = el("div", "pick-row");
-  actions.append(count, cancel, save);
-  bar.replaceChildren(tools, actions);
+  const summary = el("div", "pick-row");
+  summary.append(count, cancel);
+  const actions = el("div", "pick-actions");
+  actions.append(action("pick-save", "download", t("download"), downloadPicked, "primary"));
+  // The other files on a disk are read only: they can only be downloaded.
+  if (!isDisk(state.space)) {
+    actions.append(
+      action("pick-move", "move", t("pickMove"), openMovePicked),
+      action("pick-collection", "album", t("pickCollection"), collectPicked),
+      action("pick-fav", "heart", t("kind_favorite"), favoritePicked),
+      action("pick-trash", "trash", t("pickDelete"), trashChosen, "danger"));
+  }
+  bar.replaceChildren(tools, summary, actions);
   bar.hidden = false;
 }
+
+const pickedItems = () => picking.items.filter((i) => picking.picked.has(i.path));
 
 function paintPicking() {
   if (!picking.on) return;
   const sizes = new Map(picking.items.map((i) => [i.path, i.size || 0]));
   const bytes = [...picking.picked].reduce((sum, path) => sum + (sizes.get(path) || 0), 0);
   $("pick-count").textContent = `${t("pickCount", { n: picking.picked.size })} · ${formatSize(bytes)}`;
-  $("pick-save").disabled = !picking.picked.size;
+  document.querySelectorAll(".pick-action").forEach((b) => { b.disabled = !picking.picked.size; });
+  const chosen = pickedItems();
+  // Collections only take files; the heart says what the button will do.
+  if ($("pick-collection")) $("pick-collection").disabled = !chosen.some((i) => !i.is_dir);
+  if ($("pick-fav")) $("pick-fav").firstChild.replaceWith(iconEl(chosen.length && chosen.every((i) => i.fav) ? "heartFill" : "heart"));
   $("pick-all").textContent = t(picking.picked.size === picking.items.length ? "deselectAll" : "selectAll");
   for (const [key, button] of picking.monthButtons) {
     const paths = picking.items.filter((i) => i.day && pickMonthOf(i) === key);
@@ -531,6 +555,87 @@ async function downloadPicked() {
     alert(err.message);
   }
   paintPicking();
+}
+
+// One at a time, like the single actions, saying how far along it is: a failed item
+// (a name already there, say) doesn't stop the others.
+async function eachPicked(items, work) {
+  const done = [], failed = [];
+  picking.busy = true;
+  $("select-bar").classList.add("busy");
+  for (const [index, item] of items.entries()) {
+    if (picking.on) $("pick-count").textContent = t("pickProgress", { done: index + 1, total: items.length });
+    try {
+      done.push(await work(item));
+    } catch (err) {
+      failed.push(err.message);
+    }
+  }
+  picking.busy = false;
+  $("select-bar").classList.remove("busy");
+  if (failed.length) alert(t("pickFailed", { n: failed.length, error: failed[0] }));
+  return done;
+}
+
+// To Recently deleted, as everywhere: Undo brings them all back.
+async function trashChosen() {
+  const seq = renderSeq;
+  const space = state.space;
+  const ids = await eachPicked(pickedItems(), async (item) =>
+    (await api(`api/files?${qs({ space, path: item.path })}`, { method: "DELETE" })).id);
+  loadStatus();
+  if (ids.length) {
+    snack(t("pickTrashed", { n: ids.length }), t("undo"), async () => {
+      for (const id of ids) await post("api/trash/restore", { id }).catch(() => {});
+      loadStatus();
+      if ($("viewer").hidden) render();
+    });
+  }
+  if (!stale(seq)) render();
+}
+
+function openMovePicked() {
+  const entries = pickedItems();
+  Object.assign(picker, { space: state.space, path: state.kind === "all" ? state.path : "", entries, from: state.space, copy: false, many: true });
+  $("move-title").textContent = t("moveManyTitle", { n: entries.length });
+  $("move-ok").textContent = t("moveHere");
+  $("move-dialog").showModal();
+  renderPicker();
+}
+
+async function movePicked(toSpace, toPath) {
+  const seq = renderSeq;
+  const from = picker.from;
+  // Those already in that folder stay where they are.
+  const items = picker.entries.filter((i) => from !== toSpace || parentOf(i.path) !== toPath);
+  const moved = await eachPicked(items, (item) => post("api/move", { space: from, path: item.path, to_space: toSpace, to_path: toPath }));
+  if (moved.length) snack(t("pickMoved", { n: moved.length }));
+  if (!stale(seq)) render();
+}
+
+async function collectPicked() {
+  const files = pickedItems().filter((i) => !i.is_dir);
+  const space = state.space;
+  const seq = renderSeq;
+  const newOnes = [{ label: t("newAlbum"), kind: "album" }, { label: t("newDossier"), kind: "dossier" }];
+  await chooseCollection(space, t("addManyTitle", { n: files.length }), newOnes, async (id, name) => {
+    $("collection-dialog").close();
+    const added = await eachPicked(files, (item) => post("api/collections/items", { id, space, path: item.path }));
+    if (added.length) snack(t("pickAdded", { n: added.length, name }));
+    if (!stale(seq)) leavePicking();
+  });
+}
+
+// All of them become favorites; if they all are already, none of them stays one.
+async function favoritePicked() {
+  const seq = renderSeq;
+  const space = state.space;
+  const chosen = pickedItems();
+  const on = !chosen.every((i) => i.fav);
+  const changed = await eachPicked(chosen.filter((i) => !i.fav === on), (item) =>
+    post("api/favorites", { space, path: item.path, favorite: on ? "1" : "0" }));
+  if (changed.length) snack(t(on ? "pickFavAdded" : "pickFavRemoved", { n: changed.length }));
+  if (!stale(seq)) render();
 }
 
 $("select-btn").onclick = startPicking;
@@ -650,7 +755,7 @@ async function renderFiles() {
 // In a list, month and dates pick files by the date the list shows; folders only with "select all".
 function offerPicking(entries) {
   picking.load = async () => entries.map((e) => ({ path: e.path, get size() { return e.size || 0; },
-    day: e.is_dir || !sortDate(e) ? "" : localDay(sortDate(e)) }));
+    is_dir: e.is_dir, fav: e.fav, day: e.is_dir || !sortDate(e) ? "" : localDay(sortDate(e)) }));
   $("select-btn").hidden = false;
 }
 
@@ -1440,8 +1545,17 @@ function newCollection(kind) {
 }
 
 // "Add to collection…": pick one, or make a new one on the spot.
-async function addToCollection(entry) {
+function addToCollection(entry) {
   const space = entry.space || state.space;
+  const newOne = { label: t("newCollection"), kind: kindOf(entry.name) ? "album" : "dossier" };
+  return chooseCollection(space, t("addToCollectionTitle", { name: entry.name }), [newOne], async (id, name) => {
+    await post("api/collections/items", { id, space, path: entry.path });
+    $("collection-dialog").close();
+    snack(t("addedToCollection", { name }));
+  });
+}
+
+async function chooseCollection(space, title, newOnes, onPick) {
   let list;
   try {
     ({ collections: list } = await api("api/collections"));
@@ -1452,11 +1566,9 @@ async function addToCollection(entry) {
   const fits = list.filter((c) => space === "family" || !c.shared);
   const dialog = $("collection-dialog");
   const picks = el("div", "pick-list");
-  const add = async (id) => {
+  const add = async (id, name) => {
     try {
-      await post("api/collections/items", { id, space, path: entry.path });
-      dialog.close();
-      snack(t("addedToCollection", { name: (list.find((c) => c.id === id) || { name: "" }).name }));
+      await onPick(id, name);
     } catch (err) {
       alert(err.message);
     }
@@ -1465,19 +1577,19 @@ async function addToCollection(entry) {
   for (const col of fits) {
     const b = el("button", "pick");
     b.append(iconEl(col.kind), el("span", "", col.name), el("span", "card-sub", col.shared ? t("sharedBadge") : ""));
-    b.onclick = () => add(col.id);
+    b.onclick = () => add(col.id, col.name);
     picks.append(b);
   }
-  const create = el("button", "btn", t("newCollection"));
-  create.onclick = () => collectionForm(kindOf(entry.name) ? "album" : "dossier", (id, name) => {
-    list.push({ id, name });
-    add(id);
-  });
   const cancel = el("button", "btn", t("cancel"));
   cancel.onclick = () => dialog.close();
   const actions = el("div", "dialog-actions");
-  actions.append(create, cancel);
-  dialog.replaceChildren(el("h2", "", t("addToCollectionTitle", { name: entry.name })), picks, actions);
+  for (const { label, kind } of newOnes) {
+    const create = el("button", "btn", label);
+    create.onclick = () => collectionForm(kind, add);
+    actions.append(create);
+  }
+  actions.append(cancel);
+  dialog.replaceChildren(el("h2", "", title), picks, actions);
   dialog.showModal();
 }
 
@@ -2143,10 +2255,11 @@ document.addEventListener("scroll", closeMenu, true);
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeMenu(); });
 
 // Folder picker: browse My space and Family, then "Move here".
-const picker = { space: "personal", path: "", entry: null, from: null };
+const picker = { space: "personal", path: "", entries: [], from: null, many: false };
+const parentOf = (path) => (path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "");
 
 function openMoveDialog(entry) {
-  Object.assign(picker, { space: state.space, path: state.kind === "all" ? state.path : "", entry, from: state.space, copy: false });
+  Object.assign(picker, { space: state.space, path: state.kind === "all" ? state.path : "", entries: [entry], from: state.space, copy: false, many: false });
   $("move-title").textContent = t("moveTitle", { name: entry.name });
   $("move-ok").textContent = t("moveHere");
   $("move-dialog").showModal();
@@ -2173,8 +2286,8 @@ async function renderPicker() {
     return list.replaceChildren(el("p", "muted", err.message));
   }
   // A folder can't go inside itself.
-  const moving = picker.space === picker.from && picker.entry.is_dir ? picker.entry.path : null;
-  const folders = entries.filter((e) => e.is_dir && join(picker.path, e.name) !== moving);
+  const moving = new Set(picker.space === picker.from ? picker.entries.filter((e) => e.is_dir).map((e) => e.path) : []);
+  const folders = entries.filter((e) => e.is_dir && !moving.has(join(picker.path, e.name)));
   list.innerHTML = "";
   if (!folders.length) list.append(el("p", "muted", t("noSubfolders")));
   for (const folder of folders) {
@@ -2183,8 +2296,7 @@ async function renderPicker() {
     b.onclick = () => { picker.path = join(picker.path, folder.name); renderPicker(); };
     list.append(b);
   }
-  const current = picker.entry.path.includes("/") ? picker.entry.path.slice(0, picker.entry.path.lastIndexOf("/")) : "";
-  $("move-ok").disabled = picker.space === picker.from && picker.path === current;
+  $("move-ok").disabled = picker.space === picker.from && picker.entries.every((e) => parentOf(e.path) === picker.path);
 }
 
 document.querySelectorAll("#move-spaces button").forEach((b) => {
@@ -2192,13 +2304,14 @@ document.querySelectorAll("#move-spaces button").forEach((b) => {
 });
 $("move-ok").onclick = () => {
   $("move-dialog").close();
-  if (picker.copy) return startCopy(picker.from, picker.entry, picker.space, picker.path);
-  moveItem(picker.from, picker.entry.path, picker.space, picker.path);
+  if (picker.copy) return startCopy(picker.from, picker.entries[0], picker.space, picker.path);
+  if (picker.many) return movePicked(picker.space, picker.path);
+  moveItem(picker.from, picker.entries[0].path, picker.space, picker.path);
 };
 
 // "Copy to…" for the other files on the disk: pick a folder of My space or Family.
 function openCopyDialog(entry) {
-  Object.assign(picker, { space: "personal", path: "", entry, from: state.space, copy: true });
+  Object.assign(picker, { space: "personal", path: "", entries: [entry], from: state.space, copy: true, many: false });
   $("move-title").textContent = t("copyTitle", { name: entry.name });
   $("move-ok").textContent = t("copyHere");
   $("move-dialog").showModal();

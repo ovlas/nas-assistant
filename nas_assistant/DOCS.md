@@ -90,6 +90,15 @@ month, or a range of dates (one date alone means that day). **Download** then ge
 folders; a single file comes as itself. In *Files*, months and dates pick files by the date the list shows, and
 folders are picked by hand or with **Select all**.
 
+The same bar acts on what you picked: **Move** to a folder of My space or Family, add to a **Collection** (an existing
+one, or a new album or dossier; folders stay out, collections only take files), mark as **Favorites** (if they all
+already are, it removes them) or **Delete**, which sends them to *Recently deleted* with an **Undo**. If one item
+fails, for example because that name is already in the folder, the others still go through and you are told how many
+failed. *Other files on the disk* are read only, so there you can only download.
+
+Whatever comes back from *Recently deleted*, with **Undo** or later, is again in the collections and favorites it
+was in, unless that collection has been deleted in the meantime.
+
 ## Watch on the TV
 
 Photos and videos can be shown on any TV or player Home Assistant knows (Chromecast / Google TV, Samsung, LG,

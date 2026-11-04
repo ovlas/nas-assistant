@@ -985,7 +985,11 @@ async def trash_thumb(id: str, size: str = "s", user: User = Depends(current_use
 @app.post("/api/trash/restore")
 async def restore(request: Request, user: User = Depends(current_user)):
     (item_id,) = await _fields(request, "id")
-    return await run_in_threadpool(storage.restore, user, item_id)
+    result = await run_in_threadpool(storage.restore, user, item_id)
+    links, old = result.pop("links"), result.pop("from")  # other users can be in the links: not for the client
+    favorites.restored(user, links.get("favorites", []), result["space"], old, result["path"])
+    albums.restored(user, links.get("collections", []), result["space"], old, result["path"])
+    return result
 
 
 @app.delete("/api/trash")
@@ -1086,8 +1090,8 @@ async def download_by_link(token: str, name: str, inline: bool = False):
 @app.delete("/api/files")
 async def delete(space: str, path: str, user: User = Depends(current_user)):
     item_id = storage.move_to_trash(user, space, path)
-    favorites.removed(user, space, path)
-    albums.removed(user, space, path)
+    storage.keep_links(user, item_id, {"favorites": favorites.removed(user, space, path),
+                                       "collections": albums.removed(user, space, path)})
     return {"id": item_id}
 
 

@@ -511,6 +511,16 @@ def move_to_trash(user: User, space: str, rel_path: str) -> str:
     return item_id
 
 
+def keep_links(user: User, item_id: str, links: dict) -> None:
+    """Remember what pointed at a trashed item (favorites, collections), to put it back with it.
+    It lives and expires with the item, and never leaves the server: other users can be in it."""
+    if not any(links.values()):
+        return
+    for slot in _trash_items(user, item_id):
+        info = json.loads((slot / TRASH_INFO).read_text())
+        (slot / TRASH_INFO).write_text(json.dumps({**info, "links": links}))
+
+
 def _trash_items(user: User, item_id: str) -> List[Path]:
     """The slots of a trash item on every disk."""
     slots = []
@@ -606,12 +616,15 @@ def _free_name(folder: Path, name: str) -> Path:
 
 
 def restore(user: User, item_id: str) -> dict:
-    """Put an item back where it was, on its own disk, recreating its folders if needed."""
+    """Put an item back where it was, on its own disk, recreating its folders if needed.
+    Also says where it came from and what pointed at it, for the caller to link it again."""
     target = None
+    links = {}
     for slot in _trash_items(user, item_id):
         info = _trash_info(slot)
+        links = info.get("links") or links
         space = info["space"] if info["space"] in SPACES else "personal"
-        disk = next(d for d in disk_roots() if d.resolve() in slot.parents)
+        disk = next(d for d in disk_roots() if d.resolve() in slot.resolve().parents)
         folder = _inside((disk / _check_space(user, space)).resolve(), os.path.dirname(info["path"]))
         folder.mkdir(parents=True, exist_ok=True)
         target = _free_name(folder, info["name"]) if target is None else folder / target.name
@@ -623,7 +636,7 @@ def restore(user: User, item_id: str) -> dict:
             shutil.move(str(info["item"]), str(target))
         if slot.exists():
             _erase(slot)
-    return {"space": space, "path": to_rel(user, space, target)}
+    return {"space": space, "path": to_rel(user, space, target), "from": info["path"], "links": links}
 
 
 def delete_forever(user: User, item_id: str) -> None:

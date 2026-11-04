@@ -1,8 +1,8 @@
 """Favorites: files, folders, photos and videos each user marks with a heart.
 
 Each user has their own favorites, also in the Family space. They live in the
-index on the NAS disk (.nas_assistant/index.db) and follow items when they are
-renamed or moved.
+index on the NAS disk (.nas_assistant/index.db), follow items when they are
+renamed or moved, and come back when an item is restored from the trash.
 """
 
 import os
@@ -118,8 +118,22 @@ def moved(user: User, space: str, old: str, to_space: str, new: str) -> None:
                              (owner, to_space, new + path[len(old):], int(time.time())))
 
 
-def removed(user: User, space: str, path: str) -> None:
+def removed(user: User, space: str, path: str) -> List[list]:
+    """Drop the favorites of a trashed item; returns what was there, for restored()."""
     path = _clean(path)
+    where = f"{_SCOPE} AND (path = ? OR path LIKE ?)"
+    args = (space, user.id, path, path + "/%")
     with _db() as conn:
-        conn.execute(f"DELETE FROM favorites WHERE {_SCOPE} AND (path = ? OR path LIKE ?)",
-                     (space, user.id, path, path + "/%"))
+        rows = conn.execute(f"SELECT user, path, added FROM favorites WHERE {where}", args).fetchall()
+        conn.execute(f"DELETE FROM favorites WHERE {where}", args)
+    return [list(row) for row in rows]
+
+
+def restored(user: User, links: List[list], space: str, old: str, new: str) -> None:
+    """Favorites again, under the name the item came back with."""
+    old, new = _clean(old), _clean(new)
+    with _db() as conn:
+        for owner, path, added in links:
+            if space == "family" or owner == user.id:
+                conn.execute("INSERT OR IGNORE INTO favorites VALUES (?, ?, ?, ?)",
+                             (owner, space, new + path[len(old):], added))
