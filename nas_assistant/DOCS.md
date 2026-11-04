@@ -85,6 +85,11 @@ uploads: on the home network when Home Assistant was opened with its local `http
 **Public address**. Downloads of files can be resumed by the browser. A folder downloads as a **.zip** made while it
 is sent (stored, not compressed, so it starts at once and stays fast). Videos in the viewer play the same fast way.
 
+**Select** (in *Photos*, *Videos* and *Files*) picks many items at once: tap them one by one, or use **Select all**, a
+month, or a range of dates (one date alone means that day). **Download** then gets them in one .zip that keeps their
+folders; a single file comes as itself. In *Files*, months and dates pick files by the date the list shows, and
+folders are picked by hand or with **Select all**.
+
 ## Watch on the TV
 
 Photos and videos can be shown on any TV or player Home Assistant knows (Chromecast / Google TV, Samsung, LG,

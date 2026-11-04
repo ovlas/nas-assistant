@@ -140,14 +140,18 @@ function downloadBase() {
   return baseCheck.base;
 }
 
+function saveFrom(url) {
+  const a = el("a");
+  a.href = url;
+  a.download = "";
+  document.body.append(a);
+  a.click();
+  a.remove();
+}
+
 async function downloadItem(path, space = state.space) {
   try {
-    const a = el("a");
-    a.href = await fastUrl(path, false, space);
-    a.download = "";
-    document.body.append(a);
-    a.click();
-    a.remove();
+    saveFrom(await fastUrl(path, false, space));
   } catch (err) {
     alert(err.message);
   }
@@ -210,6 +214,7 @@ function setHeader(title, subtitle) {
   $("folder-btn").hidden = $("upload-btn").hidden || state.view !== "files";
   $("empty-trash").hidden = true;
   $("tv-btn").hidden = true;  // shown by the photo views once they have items
+  $("select-btn").hidden = true;  // shown by the galleries and the files once they have items
   $("sort-btn").hidden = !["files", "collection"].includes(state.view);
   paintSortButton();
 }
@@ -226,6 +231,7 @@ const stale = (seq) => seq !== renderSeq;
 
 function render() {
   renderSeq++;
+  stopPicking();
   $("gallery").innerHTML = "";
   $("files").innerHTML = "";
   $("crumbs").innerHTML = "";
@@ -276,9 +282,15 @@ async function renderGallery() {
   if (stale(seq)) return;
   renderChips(GALLERY_FILTERS);
   state.items = [];
+  // Picking works on the whole gallery, also on the pages not loaded yet.
+  picking.load = async () => {
+    const { items } = await api(`api/photos?${qs({ space: state.space, ...(state.kind === "favorite" ? { favorite: 1 } : {}), ...(onlyVideos ? { kind: "video" } : {}) })}`);
+    return items.map((i) => ({ path: i.path, size: i.size, day: new Date(i.taken * 1000).toISOString().slice(0, 10) }));
+  };
   $("tv-btn").hidden = !first.total;
   setHeader($("title").textContent,
     [where, onlyVideos ? "" : t("photoCount", { n: first.images }), first.videos || onlyVideos ? t("videoCount", { n: first.videos }) : ""].filter(Boolean).join(" · "));
+  $("select-btn").hidden = !first.total;
   if (!first.total) {
     return state.kind === "favorite"
       ? showEmpty(t("noFavTitle"), t("noFavText"))
@@ -297,6 +309,10 @@ async function renderGallery() {
         const section = el("section", "month");
         const h2 = el("h2", "", monthTitle(key));
         h2.append(el("span", "", String(first.months[key] || "")));
+        const pickMonth = el("button", "month-pick");
+        pickMonth.onclick = () => toggleMonth(key);
+        picking.monthButtons.set(key, pickMonth);
+        h2.append(pickMonth);
         tiles = el("div", "tiles");
         section.append(h2, tiles);
         gallery.insertBefore(section, sentinel);
@@ -305,6 +321,7 @@ async function renderGallery() {
       state.items.push(item);
       tiles.append(tile(item, state.items.length - 1));
     }
+    paintPicking();
   };
   const sentinel = el("div", "gallery-more");
   gallery.append(sentinel);
@@ -357,9 +374,166 @@ function tile(item, index) {
     heart.append(iconEl("heartFill"));
     node.append(heart);
   }
-  node.onclick = () => openViewer(index);
+  pickable(node, item.path, () => openViewer(index));
   return node;
 }
+
+// --- Picking many items, to download them together ------------------------------------
+
+const picking = { on: false, load: null, items: [], picked: new Set(), nodes: new Map(), monthButtons: new Map() };
+const pickMonthOf = (item) => item.day.slice(0, 7);
+
+// A tile or a row: while picking, a click picks it instead of opening it.
+function pickable(node, path, open) {
+  picking.nodes.set(path, node);
+  const mark = el("span", "pick-mark");
+  mark.append(iconEl("check"));
+  node.append(mark);
+  node.classList.toggle("picked", picking.picked.has(path));
+  node.onclick = () => {
+    if (!picking.on) return open();
+    setPicked([path], !picking.picked.has(path));
+  };
+}
+
+function setPicked(paths, on) {
+  for (const path of paths) {
+    if (on) picking.picked.add(path); else picking.picked.delete(path);
+    const node = picking.nodes.get(path);
+    if (node) node.classList.toggle("picked", on);
+  }
+  paintPicking();
+}
+
+function toggleMonth(key) {
+  const paths = picking.items.filter((i) => i.day && pickMonthOf(i) === key).map((i) => i.path);
+  setPicked(paths, !paths.every((p) => picking.picked.has(p)));
+}
+
+function stopPicking() {
+  picking.on = false;
+  picking.load = null;
+  picking.items = [];
+  picking.picked.clear();
+  picking.nodes.clear();
+  picking.monthButtons.clear();
+  document.body.classList.remove("picking");
+  $("select-bar").hidden = true;
+  $("select-btn").disabled = false;
+}
+
+async function startPicking() {
+  const seq = renderSeq;
+  $("select-btn").disabled = true;
+  let items;
+  try {
+    items = await picking.load();
+  } catch (err) {
+    $("select-btn").disabled = false;
+    return alert(err.message);
+  }
+  if (stale(seq)) return;
+  Object.assign(picking, { on: true, items });
+  document.body.classList.add("picking");
+  $("select-btn").hidden = true;
+  drawPickingBar();
+  paintPicking();
+}
+
+function drawPickingBar() {
+  const bar = $("select-bar");
+  const all = el("button", "btn", t("selectAll"));
+  all.id = "pick-all";
+  all.onclick = () => setPicked(picking.items.map((i) => i.path), picking.picked.size < picking.items.length);
+
+  const months = new Map();
+  for (const item of picking.items) if (item.day) months.set(pickMonthOf(item), (months.get(pickMonthOf(item)) || 0) + 1);
+  const month = el("select", "pick-field");
+  month.id = "pick-month";
+  month.append(new Option(t("pickMonth"), ""));
+  for (const key of [...months.keys()].sort().reverse()) month.append(new Option(`${monthTitle(key)} (${months.get(key)})`, key));
+  month.onchange = () => {
+    setPicked(picking.items.filter((i) => i.day && pickMonthOf(i) === month.value).map((i) => i.path), true);
+    month.value = "";
+  };
+
+  // One date alone means that day.
+  const dateField = (label, id) => {
+    const input = el("input", "pick-field");
+    input.type = "date";
+    input.id = id;
+    const wrap = el("label", "pick-date", label);
+    wrap.append(input);
+    return [wrap, input];
+  };
+  const [fromWrap, from] = dateField(t("pickFrom"), "pick-from");
+  const [toWrap, to] = dateField(t("pickTo"), "pick-to");
+  const add = el("button", "btn", t("pickAdd"));
+  add.id = "pick-add";
+  add.onclick = () => {
+    const [low, high] = [from.value || to.value, to.value || from.value].sort();
+    if (!low) return;
+    const found = picking.items.filter((i) => i.day && i.day >= low && i.day <= high).map((i) => i.path);
+    if (!found.length) return snack(t("pickNoneInRange"));
+    setPicked(found, true);
+  };
+
+  const count = el("span", "pick-count");
+  count.id = "pick-count";
+  const cancel = el("button", "btn", t("cancel"));
+  cancel.id = "pick-cancel";
+  cancel.onclick = () => {
+    setPicked([...picking.picked], false);
+    picking.on = false;
+    document.body.classList.remove("picking");
+    bar.hidden = true;
+    $("select-btn").hidden = false;
+    $("select-btn").disabled = false;
+  };
+  const save = el("button", "btn primary");
+  save.id = "pick-save";
+  save.append(iconEl("download"), el("span", "", t("download")));
+  save.onclick = downloadPicked;
+
+  const tools = el("div", "pick-row");
+  tools.append(all, month, fromWrap, toWrap, add);
+  const actions = el("div", "pick-row");
+  actions.append(count, cancel, save);
+  bar.replaceChildren(tools, actions);
+  bar.hidden = false;
+}
+
+function paintPicking() {
+  if (!picking.on) return;
+  const sizes = new Map(picking.items.map((i) => [i.path, i.size || 0]));
+  const bytes = [...picking.picked].reduce((sum, path) => sum + (sizes.get(path) || 0), 0);
+  $("pick-count").textContent = `${t("pickCount", { n: picking.picked.size })} · ${formatSize(bytes)}`;
+  $("pick-save").disabled = !picking.picked.size;
+  $("pick-all").textContent = t(picking.picked.size === picking.items.length ? "deselectAll" : "selectAll");
+  for (const [key, button] of picking.monthButtons) {
+    const paths = picking.items.filter((i) => i.day && pickMonthOf(i) === key);
+    button.textContent = t(paths.length && paths.every((i) => picking.picked.has(i.path)) ? "deselect" : "select");
+  }
+}
+
+// One file downloads as itself; more come in one .zip, through the same fast link.
+async function downloadPicked() {
+  const paths = [...picking.picked];
+  if (paths.length === 1) return downloadItem(paths[0]);
+  $("pick-save").disabled = true;
+  try {
+    const link = await api("api/download/selection", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ space: state.space, paths }) });
+    const base = await downloadBase();
+    saveFrom(`${base ? base + "/" : ""}dl/${link.token}/${encodeURIComponent(link.name)}`);
+    snack(t("pickDownloading", { n: paths.length }));
+  } catch (err) {
+    alert(err.message);
+  }
+  paintPicking();
+}
+
+$("select-btn").onclick = startPicking;
 
 // --- Files --------------------------------------------------------------------
 
@@ -466,11 +640,24 @@ async function renderFiles() {
         ? showEmpty(t("noFavTitle"), t("noFavText"))
         : showEmpty(t("noKindTitle"), t("noKindText"));
   }
+  offerPicking(entries);
   const list = $("files");
   list.className = `file-list layout-${state.layout}`;
   for (const entry of entries) list.append(fileRow(entry));
   if (state.kind === "all") fillFolderSizes(entries, seq);
 }
+
+// In a list, month and dates pick files by the date the list shows; folders only with "select all".
+function offerPicking(entries) {
+  picking.load = async () => entries.map((e) => ({ path: e.path, get size() { return e.size || 0; },
+    day: e.is_dir || !sortDate(e) ? "" : localDay(sortDate(e)) }));
+  $("select-btn").hidden = false;
+}
+
+const localDay = (seconds) => {
+  const date = new Date(seconds * 1000);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+};
 
 const DISK_NAMES = { nas: "roleNas", storage: "roleStorage" };
 const diskName = (space) => t(DISK_NAMES[space.slice(5)] || "diskFiles");
@@ -499,6 +686,7 @@ async function renderDiskFiles() {
   state.items = entries.filter((e) => !e.is_dir && kindOf(e.name))
     .map((e) => ({ path: e.path, name: e.name, kind: kindOf(e.name), taken: e.modified, v: e.v }));
   if (!entries.length) return showEmpty(t(state.space === "disk" ? "noDiskFilesTitle" : "emptyFolderTitle"), t(state.space === "disk" ? "noDiskFilesText" : "diskFilesEmpty"));
+  if (state.space !== "disk") offerPicking(entries);
   const list = $("files");
   list.className = `file-list layout-${state.layout}`;
   for (const entry of entries) list.append(fileRow(entry));
@@ -607,12 +795,12 @@ function fileRow(entry) {
     e.dataTransfer.effectAllowed = "move";
   };
   if (entry.is_dir && !isDisk(state.space)) dropTarget(row, path);
-  row.onclick = () => {
+  pickable(row, path, () => {
     if (entry.is_dir) return go(state.space, "files", path);
     if (kind) return openViewer(state.items.findIndex((i) => i.path === path));
     const tab = window.open("", "_blank");  // opened now: a popup blocker allows it only on the click
     fastUrl(path, true, entry.space || state.space).then((url) => { tab.location = url; }, () => tab.close());
-  };
+  });
   return row;
 }
 

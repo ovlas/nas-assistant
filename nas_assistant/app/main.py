@@ -8,7 +8,7 @@ import secrets
 import shutil
 import tempfile
 import time
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 from pathlib import Path
 
 import aiohttp
@@ -1051,12 +1051,33 @@ async def download_link(request: Request, user: User = Depends(current_user)):
     return downloads.make(targets)
 
 
+@app.post("/api/download/selection")
+async def download_selection(request: Request, user: User = Depends(current_user)):
+    """A secret link, like the one above, to many files and folders of a space in one .zip."""
+    data = await request.json()
+    space, paths = data.get("space"), data.get("paths")
+    if not (isinstance(space, str) and isinstance(paths, list) and paths and all(isinstance(p, str) and p for p in paths)):
+        raise HTTPException(422, "Required fields: space, paths")
+
+    def find(path: str) -> List[Path]:
+        if space.startswith(rawdisk.PREFIX):
+            return [_source(user, space, path)]
+        return storage.candidates(user, space, path)
+
+    picked = await run_in_threadpool(lambda: [(p.strip("/"), find(p)) for p in dict.fromkeys(paths)])
+    return downloads.make_selection(picked)
+
+
 @app.api_route("/dl/{token}/{name}", methods=["GET", "HEAD"])
 async def download_by_link(token: str, name: str, inline: bool = False):
-    targets, filename = downloads.get(token)
-    if targets[0].is_file():
-        return file_response(targets[0], inline)
-    files = await run_in_threadpool(downloads.folder_files, targets)
+    selection = downloads.get_selection(token)
+    if selection:
+        files, filename = await run_in_threadpool(downloads.selection_files, selection[0]), selection[1]
+    else:
+        targets, filename = downloads.get(token)
+        if targets[0].is_file():
+            return file_response(targets[0], inline)
+        files = await run_in_threadpool(downloads.folder_files, targets)
     return StreamingResponse(downloads.zip_stream(files), media_type="application/zip",
                              headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}",
                                       **FILE_HEADERS})

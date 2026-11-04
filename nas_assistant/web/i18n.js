@@ -6,6 +6,7 @@
 const MESSAGES = {
   en: {
     mySpace: "My space", family: "Family", photos: "Photos", files: "Files",
+    select: "Select", selectAll: "Select all", deselectAll: "Deselect all", deselect: "Deselect", pickMonth: "Month…", pickFrom: "From", pickTo: "To", pickAdd: "Add", pickCount: { one: "{n} selected", other: "{n} selected" }, pickNoneInRange: "Nothing on those dates", pickDownloading: "Downloading {n} items as one .zip",
     videos: "Videos", familyVideos: "Family videos", videosLoadError: "Can't load the videos", noVideosTitle: "No videos yet", noVideosText: "Drag videos here, or press Upload.",
     familyPhotos: "Family photos", familyShort: "Family", sharedFiles: "Shared files", sharedShort: "Shared",
     diskLoading: "Disk…", newFolder: "New folder", upload: "Upload", dropHint: "Drop to upload",
@@ -70,6 +71,7 @@ const MESSAGES = {
   },
   it: {
     mySpace: "Il mio spazio", family: "Famiglia", photos: "Foto", files: "File",
+    select: "Seleziona", selectAll: "Seleziona tutto", deselectAll: "Deseleziona tutto", deselect: "Deseleziona", pickMonth: "Mese…", pickFrom: "Da", pickTo: "A", pickAdd: "Aggiungi", pickCount: { one: "{n} selezionato", other: "{n} selezionati" }, pickNoneInRange: "Niente in quelle date", pickDownloading: "Scarico {n} elementi in un unico .zip",
     videos: "Video", familyVideos: "Video di famiglia", videosLoadError: "Impossibile caricare i video", noVideosTitle: "Ancora nessun video", noVideosText: "Trascina qui i video, oppure premi Carica.",
     familyPhotos: "Foto di famiglia", familyShort: "Famiglia", sharedFiles: "File condivisi", sharedShort: "Condivisi",
     diskLoading: "Disco…", newFolder: "Nuova cartella", upload: "Carica", dropHint: "Rilascia per caricare",
@@ -155,6 +157,7 @@ const MESSAGES = {
   },
   es: {
     mySpace: "Mi espacio", family: "Familia", photos: "Fotos", files: "Archivos",
+    select: "Seleccionar", selectAll: "Seleccionar todo", deselectAll: "Deseleccionar todo", deselect: "Deseleccionar", pickMonth: "Mes…", pickFrom: "Desde", pickTo: "Hasta", pickAdd: "Añadir", pickCount: { one: "{n} seleccionado", other: "{n} seleccionados" }, pickNoneInRange: "Nada en esas fechas", pickDownloading: "Descargando {n} elementos en un solo .zip",
     videos: "Vídeos", familyVideos: "Vídeos de familia", videosLoadError: "No se pueden cargar los vídeos", noVideosTitle: "Todavía no hay vídeos", noVideosText: "Arrastra aquí vídeos, o pulsa Subir.",
     familyPhotos: "Fotos de familia", familyShort: "Familia", sharedFiles: "Archivos compartidos", sharedShort: "Compartidos",
     diskLoading: "Disco…", newFolder: "Nueva carpeta", upload: "Subir", dropHint: "Suelta para subir",
@@ -231,6 +234,7 @@ const MESSAGES = {
   },
   fr: {
     mySpace: "Mon espace", family: "Famille", photos: "Photos", files: "Fichiers",
+    select: "Sélectionner", selectAll: "Tout sélectionner", deselectAll: "Tout désélectionner", deselect: "Désélectionner", pickMonth: "Mois…", pickFrom: "Du", pickTo: "Au", pickAdd: "Ajouter", pickCount: { one: "{n} sélectionné", other: "{n} sélectionnés" }, pickNoneInRange: "Rien à ces dates", pickDownloading: "Téléchargement de {n} éléments en un seul .zip",
     videos: "Vidéos", familyVideos: "Vidéos de famille", videosLoadError: "Impossible de charger les vidéos", noVideosTitle: "Pas encore de vidéos", noVideosText: "Glissez ici des vidéos, ou appuyez sur Importer.",
     familyPhotos: "Photos de famille", familyShort: "Famille", sharedFiles: "Fichiers partagés", sharedShort: "Partagés",
     diskLoading: "Disque…", newFolder: "Nouveau dossier", upload: "Importer", dropHint: "Déposez pour importer",
@@ -307,6 +311,7 @@ const MESSAGES = {
   },
   de: {
     mySpace: "Mein Bereich", family: "Familie", photos: "Fotos", files: "Dateien",
+    select: "Auswählen", selectAll: "Alle auswählen", deselectAll: "Auswahl aufheben", deselect: "Abwählen", pickMonth: "Monat…", pickFrom: "Von", pickTo: "Bis", pickAdd: "Hinzufügen", pickCount: { one: "{n} ausgewählt", other: "{n} ausgewählt" }, pickNoneInRange: "An diesen Tagen nichts gefunden", pickDownloading: "{n} Elemente werden als eine .zip geladen",
     videos: "Videos", familyVideos: "Familienvideos", videosLoadError: "Die Videos können nicht geladen werden", noVideosTitle: "Noch keine Videos", noVideosText: "Videos hierher ziehen oder auf Hochladen tippen.",
     familyPhotos: "Familienfotos", familyShort: "Familie", sharedFiles: "Geteilte Dateien", sharedShort: "Geteilt",
     diskLoading: "Festplatte…", newFolder: "Neuer Ordner", upload: "Hochladen", dropHint: "Zum Hochladen loslassen",
