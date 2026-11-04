@@ -527,6 +527,8 @@ body.picking .month-pick { display: inline; }
 @media (max-width: 760px) {
   .select-bar { bottom: calc(80px + env(safe-area-inset-bottom)); padding: 10px 12px; }
   .select-bar .btn span { display: inline; }
+  #select-btn span { display: inline; }
+  .actions { flex-wrap: wrap; }
   #pick-month, .pick-date { flex: 1 1 40%; }
   .pick-date .pick-field { flex: 1; }
 }
