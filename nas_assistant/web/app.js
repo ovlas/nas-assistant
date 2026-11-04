@@ -728,6 +728,11 @@ function devicesCard(info) {
   const shortcut = el("button", "btn link subtle", t("shortcutAdvanced"));
   shortcut.onclick = connectPhone;
   body.append(add, shortcut);
+  if (state.user && state.user.is_admin) {
+    const review = el("button", "btn link subtle", t("reviewButton"));
+    review.onclick = reviewCode;
+    body.append(review);
+  }
   node.append(body);
   return node;
 }
@@ -779,6 +784,50 @@ async function pairPhone() {
   };
   tick();
   pairTimer = setInterval(tick, 2000);
+}
+
+// The code for app store reviewers: long-lived, for a separate upload-only user.
+async function reviewCode() {
+  const dialog = $("device-dialog");
+  const close = el("button", "btn", t("cancel"));
+  close.onclick = () => dialog.close();
+  const create = el("button", "btn primary", t("reviewNew"));
+  const stop = el("button", "btn", t("reviewStop"));
+  const show = (review) => {
+    const parts = [el("h2", "", t("reviewTitle"))];
+    if (review.qr_svg) {
+      const qr = el("div", "qr");
+      qr.innerHTML = review.qr_svg;  // SVG made by the server from the code
+      parts.push(qr);
+    }
+    parts.push(el("p", "card-sub wrap", t("reviewHow")));
+    if (review.expires) {
+      parts.push(el("p", "pair-status", t("reviewUntil", { date: new Date(review.expires * 1000).toLocaleDateString(LOCALE) })));
+    }
+    parts.push(create);
+    if (review.expires) parts.push(stop);
+    parts.push(close);
+    dialog.replaceChildren(...parts);
+  };
+  create.onclick = async () => {
+    try {
+      show(await post("api/devices/review", {}));
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+  stop.onclick = async () => {
+    if (!confirm(t("reviewStopConfirm"))) return;
+    await api("api/devices/review", { method: "DELETE" });
+    dialog.close();
+  };
+  dialog.onclose = () => render();
+  try {
+    show(await api("api/devices/review"));
+  } catch (err) {
+    return alert(err.message);
+  }
+  if (!dialog.open) dialog.showModal();
 }
 
 async function connectPhone() {

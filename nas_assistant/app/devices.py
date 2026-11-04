@@ -26,6 +26,11 @@ DEVICES_FILE = Path(os.environ.get("NAS_DEVICES_FILE", "/data/devices.json"))
 PREFIX = "nas_"
 PAIRING_SECONDS = 10 * 60
 MAX_FAILED_PAIRINGS = 10  # per address and minute
+# The code for app store reviewers: long-lived and reusable, so it belongs to a user of its
+# own (its keys can only upload, to that user's folder) and an administrator can end it.
+REVIEW_FILE = DEVICES_FILE.with_name("review_code.json")
+REVIEW_SECONDS = 60 * 24 * 3600
+REVIEW_USER = User(id="app-review", name="app-review", display_name="App Review")
 _lock = threading.Lock()
 _pairings = {}  # code -> (user, expires)
 _failures = {}  # client address -> (window start, count)
@@ -87,8 +92,38 @@ def start_pairing(user: User) -> dict:
     return {"code": code, "expires": int(now + PAIRING_SECONDS)}
 
 
+def review_expires() -> Optional[int]:
+    """When the reviewers' code ends, or None if there is no valid one."""
+    try:
+        review = json.loads(REVIEW_FILE.read_text())
+    except (OSError, ValueError):
+        return None
+    return review["expires"] if review["expires"] > time.time() else None
+
+
+def start_review() -> dict:
+    """A new code for reviewers (only its hash is kept); any earlier one stops working."""
+    code = secrets.token_urlsafe(18)
+    expires = int(time.time() + REVIEW_SECONDS)
+    REVIEW_FILE.write_text(json.dumps({"hash": _hash(code), "expires": expires}))
+    return {"code": code, "expires": expires}
+
+
+def stop_review() -> None:
+    """End the reviewers' code and disconnect every phone paired with it."""
+    REVIEW_FILE.unlink(missing_ok=True)
+    with _lock:
+        _save([d for d in _load() if d["user_id"] != REVIEW_USER.id])
+
+
+def _is_review_code(code: str) -> bool:
+    if review_expires() is None:
+        return False
+    return secrets.compare_digest(json.loads(REVIEW_FILE.read_text())["hash"], _hash(code))
+
+
 def pair(code: str, name: str, platform: str, client: str) -> dict:
-    """Exchange a QR code for a device key. Each code works once."""
+    """Exchange a QR code for a device key. Each code works once (except the reviewers' one)."""
     now = time.time()
     start, count = _failures.get(client, (now, 0))
     if now - start > 60:
@@ -96,6 +131,8 @@ def pair(code: str, name: str, platform: str, client: str) -> dict:
     if count >= MAX_FAILED_PAIRINGS:
         raise HTTPException(429, "Too many attempts, try again in a minute")
     entry = _pairings.pop(code, None)
+    if not entry and _is_review_code(code):
+        entry = (REVIEW_USER, now)
     if not entry or entry[1] < now:
         _failures[client] = (start, count + 1)
         raise HTTPException(403, "This QR code is no longer valid: show a new one on the NAS page")

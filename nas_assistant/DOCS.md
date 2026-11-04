@@ -199,6 +199,12 @@ where it stopped when you come back. Automatic camera-roll backup needs the NAS 
 10 minutes only; the key it is exchanged for goes straight into the phone's secure storage and never appears on
 screen. Each phone can be disconnected from the same card.
 
+**Code for app store review** (administrators, same card): Apple and Google reviewers can't reach your home, so
+this code works through the **Public address**, many times, for 60 days. It belongs to a separate `App Review` user
+whose phones can only upload to its own folder, never to anyone's space or to the family folder. Keep the code when
+it is shown: only one exists, and it is not shown again. **End the code** after the review: that also disconnects
+the phones paired with it. Then you can delete the `users/app-review` folder from the disk.
+
 **Without the app (iPhone, advanced)**: an **iOS Shortcut** keeps going in the background:
 
 1. On the Home page open **iPhone and devices → iOS Shortcut (advanced)**. You get an address and a key

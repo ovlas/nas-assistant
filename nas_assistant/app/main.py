@@ -137,20 +137,44 @@ def _base_urls() -> dict:
     return {"public": PUBLIC_URL, "lan": LAN_URL, "lan_ip": LAN_IP_URL}
 
 
-@app.post("/api/devices/pairing")
-async def start_pairing(user: User = Depends(current_user)):
-    """A one-time QR code (10 minutes) for the mobile app to pair this phone."""
-    pairing = devices.start_pairing(user)
+def _pairing_qr(code: str) -> dict:
     # A web address, so a phone camera without the app opens a page that explains what to do.
     # The code is after "#": browsers never send that part to the server or to Cloudflare.
-    params = urlencode({"v": 1, "code": pairing["code"], "url": PUBLIC_URL, "lan": LAN_URL, "ip": LAN_IP_URL})
+    params = urlencode({"v": 1, "code": code, "url": PUBLIC_URL, "lan": LAN_URL, "ip": LAN_IP_URL})
     text = f"{PUBLIC_URL or LAN_URL}/pair#{params}"
     svg = io.BytesIO()
     # A viewBox, no fixed size: the page shrinks the SVG to its box; with width/height
     # set the browser cut the code off instead, and no camera could read it.
     segno.make(text, error="m").save(svg, kind="svg", scale=6, border=2, dark="#0b1f4d", xmldecl=False, svgns=True,
                                      omitsize=True)
-    return {**pairing, "qr": text, "qr_svg": svg.getvalue().decode(), "started": int(time.time())}
+    return {"qr": text, "qr_svg": svg.getvalue().decode()}
+
+
+@app.post("/api/devices/pairing")
+async def start_pairing(user: User = Depends(current_user)):
+    """A one-time QR code (10 minutes) for the mobile app to pair this phone."""
+    pairing = devices.start_pairing(user)
+    return {**pairing, **_pairing_qr(pairing["code"]), "started": int(time.time())}
+
+
+@app.get("/api/devices/review")
+def review_code_status(user: User = Depends(admin_user)):
+    return {"expires": devices.review_expires(), "public_url": PUBLIC_URL}
+
+
+@app.post("/api/devices/review")
+def start_review_code(user: User = Depends(admin_user)):
+    """A long-lived QR code for app store reviewers, who can only reach the NAS from outside."""
+    if not PUBLIC_URL:
+        raise HTTPException(409, "Set the public address first: reviewers can't reach the home network")
+    review = devices.start_review()
+    return {**review, **_pairing_qr(review["code"])}
+
+
+@app.delete("/api/devices/review")
+def stop_review_code(user: User = Depends(admin_user)):
+    devices.stop_review()
+    return {"ok": True}
 
 
 @app.get("/api/devices/paired")
@@ -217,6 +241,9 @@ def _store_from_device(user: User, upload: UploadFile, space: str, lang: str) ->
 
 def _place(user: User, tmp: Path, name: str, space: str, lang: str) -> dict:
     """Move a received file into the user's space: photos and videos by capture date."""
+    if user.id == devices.REVIEW_USER.id and space != "personal":  # reviewers stay in their own folder
+        tmp.unlink(missing_ok=True)
+        raise HTTPException(403, "This device can only upload to its own space")
     try:
         kind = media_kind(name)
         if kind:
