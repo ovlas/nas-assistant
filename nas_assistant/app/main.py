@@ -146,7 +146,10 @@ async def start_pairing(user: User = Depends(current_user)):
     params = urlencode({"v": 1, "code": pairing["code"], "url": PUBLIC_URL, "lan": LAN_URL, "ip": LAN_IP_URL})
     text = f"{PUBLIC_URL or LAN_URL}/pair#{params}"
     svg = io.BytesIO()
-    segno.make(text, error="m").save(svg, kind="svg", scale=6, border=2, dark="#0b1f4d", xmldecl=False, svgns=True)
+    # A viewBox, no fixed size: the page shrinks the SVG to its box; with width/height
+    # set the browser cut the code off instead, and no camera could read it.
+    segno.make(text, error="m").save(svg, kind="svg", scale=6, border=2, dark="#0b1f4d", xmldecl=False, svgns=True,
+                                     omitsize=True)
     return {**pairing, "qr": text, "qr_svg": svg.getvalue().decode(), "started": int(time.time())}
 
 
