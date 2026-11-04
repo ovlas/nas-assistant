@@ -61,11 +61,18 @@ Made for the phone too:
 
 [![Add repository to my Home Assistant](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fovlas%2Fnas-assistant)
 
-1. Settings → Add-ons → Add-on Store → ⋮ → Repositories → add `https://github.com/ovlas/nas-assistant`
+1. Settings → Apps (Add-ons before Home Assistant 2026.2) → the store → ⋮ → Repositories → add `https://github.com/ovlas/nas-assistant`
 2. Install **NAS Assistant** and start it
 3. Open **NAS Assistant** from the sidebar and choose the disk
 
-Full guide: [nas_assistant/DOCS.md](nas_assistant/DOCS.md) · Architecture and roadmap: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+Full guide: [nas_assistant/DOCS.md](nas_assistant/DOCS.md) · Changes: [CHANGELOG](nas_assistant/CHANGELOG.md) · Architecture and roadmap: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+
+## Before you trust it with your photos
+
+- **Keep a second copy.** NAS Assistant is a young project, used so far on a handful of installations. Set up the nightly backup to a second disk, and keep another copy of what you can't lose.
+- **It needs broad rights, and Home Assistant says so.** To find, mount and check disks it asks for `SYS_ADMIN` and `SYS_RAWIO`, runs without AppArmor and can get full hardware access (used only with protection mode off), so Home Assistant shows it with a low security rating. Protection mode can stay on.
+- **Files are not encrypted on the disk.** Private spaces are enforced by the add-on: whoever has the disk, or admin access to the machine, can read them.
+- **Found a problem?** Please [open an issue](https://github.com/ovlas/nas-assistant/issues). For a security problem, don't include details that could help an attacker: ask for a private contact first.
 
 ## Translations
 

@@ -79,7 +79,8 @@ def make_thumbnail(src: Path, size: str, out: Path) -> Path:
         partial = out.with_suffix(f".{os.getpid()}.part")
         img.save(partial, "WEBP", quality=80, method=4)
         os.replace(partial, out)
-    except (OSError, SyntaxError, subprocess.TimeoutExpired, Image.DecompressionBombError):
+    except (OSError, SyntaxError, ValueError, ZeroDivisionError, subprocess.TimeoutExpired, Image.DecompressionBombError):
+        # Odd files really do these: broken EXIF data can divide by zero while decoding.
         raise HTTPException(415, "Can't create the thumbnail")
     return out
 
